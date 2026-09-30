@@ -129,11 +129,11 @@ NORMAL_COMMANDS = [
     ]),
     ("📋 Report", [)
         ("`/report envoyer [@membre] [raison]`", "Signale discrètement un membre au staff."),
- 
+    ]),
     ("🐾 Animaux & Compagnons", [)
         ("`/pet inventory`", "Affiche ton inventaire d'animaux capturés."),
         ("`/pet trade [@membre]`", "Propose un échange d'animal avec un autre membre."),
- 
+    ]),
     ("📕 Guildes", [
         ("`/guilde create`", "Crée une guilde et ouvre le formulaire de création."),
         ("`+block guild [id]`", "Bloque l'XP d'une guilde adverse 30 min (1200$, 1x/jour, fondateur)."),
