@@ -6321,14 +6321,16 @@ async def on_ready():
             except Exception as e:
                 print(f"Erreur lors de la reconstruction du panneau de tickets {panel_id} : {e}")
 
-    try:
-        guild_obj = discord.Object(id=DEV_GUILD_ID)
+  try:
+        synced = await bot.tree.sync()
+        print(f"{len(synced)} commande(s) slash synchronisée(s) globalement.")
+    except Exception as e:
+        print(f"Erreur de synchronisation : {e}")
 
-        # 1) On copie les commandes (définies globalement dans le code) vers le
-        #    serveur de dev, puis on les synchronise dessus (quasi instantané).
-        bot.tree.copy_global_to(guild=guild_obj)
-        synced = await bot.tree.sync(guild=guild_obj)
-        print(f"{len(synced)} commande(s) slash synchronisée(s) sur le serveur de dev.")
+    for guild in bot.guilds:
+        await update_invites_cache(guild)
+
+    # ... le reste continue normalement (update_stats_loop, check_elu_semaine, etc.)
 
         # 2) On vide ensuite la liste des commandes GLOBALES côté Discord.
         #    Sans cette étape, si une synchro globale a déjà eu lieu une fois
