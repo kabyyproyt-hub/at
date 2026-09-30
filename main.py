@@ -119,7 +119,7 @@ def add_validator_role(guild_id: int, categorie: str, role_id: int) -> None:
 # ================================================================
  
 NORMAL_COMMANDS = [
-("⚙️ Utilitaires", [
+    ("⚙️ Utilitaires", [
         ("`+cmds`", "Affiche la liste des commandes disponibles."),
         ("`+ping`", "Affiche la latence du bot."),
         ("`+invite-stats`", "Affiche combien de membres tu as invités sur le serveur."),
@@ -127,10 +127,10 @@ NORMAL_COMMANDS = [
     ("🎥 Concept", [
         ("`+concept list`", "Affiche la liste des notés du Concept."),
     ]),
-    ("📋 Report", [)
+    ("📋 Report", [
         ("`/report envoyer [@membre] [raison]`", "Signale discrètement un membre au staff."),
     ]),
-    ("🐾 Animaux & Compagnons", [)
+    ("🐾 Animaux & Compagnons", [
         ("`/pet inventory`", "Affiche ton inventaire d'animaux capturés."),
         ("`/pet trade [@membre]`", "Propose un échange d'animal avec un autre membre."),
     ]),
@@ -138,6 +138,7 @@ NORMAL_COMMANDS = [
         ("`/guilde create`", "Crée une guilde et ouvre le formulaire de création."),
         ("`+block guild [id]`", "Bloque l'XP d'une guilde adverse 30 min (1200$, 1x/jour, fondateur)."),
         ("`+xp fast`", "Booste l'XP de ta propre guilde pendant 5 min (1x/jour, fondateur)."),
+    ]),
 ]
  
 STAFF_COMMANDS = [
