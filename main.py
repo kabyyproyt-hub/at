@@ -6416,7 +6416,7 @@ async def on_ready():
             except Exception as e:
                 print(f"Erreur lors de la reconstruction du panneau de tickets {panel_id} : {e}")
 
-         try:
+    try:
         guild_obj = discord.Object(id=DEV_GUILD_ID)
 
         # 1) On copie les commandes (définies globalement dans le code) vers le
