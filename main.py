@@ -24,7 +24,7 @@ STAFF_ROLE_NAME = "STAFF"          # Nom exact du rôle staff sur ton serveur (u
 STATS_CATEGORY_NAME = "🧽 SERVEUR STATS"
 STATS_UPDATE_INTERVAL_MINUTES = 10      # Discord limite les renommages de salons (~2 / 10 min)
 CONFIG_FILE = "config.json"             # Stockage persistant des rôles autorisés à valider
-DEV_GUILD_ID = 1537139988448153640      # ID de ton serveur, pour une synchro instantanée des slash commands
+DEV_GUILD_ID = 1537139988448153640, 1549842941307265144      # ID de ton serveur, pour une synchro instantanée des slash commands
 
 # ---- Hiérarchie de modération (Helper < Mod < Gérant) ----
 # Chaque rôle supérieur hérite automatiquement des permissions du rôle inférieur.
