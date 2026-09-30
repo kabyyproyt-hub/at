@@ -5473,7 +5473,102 @@ async def check_tempbans_loop():
 @check_tempbans_loop.before_loop
 async def before_check_tempbans_loop():
     await bot.wait_until_ready()
- 
+
+ # ---------------- +tempmute (mute VOCAL temporaire, réservé Mods et Gérants) ----------------
+#
+# Coupe le micro du membre dans le salon vocal (mute serveur, PAS un timeout texte)
+# pendant la durée indiquée, puis le remet automatiquement en fin de durée.
+# Le membre doit être connecté à un salon vocal au moment de la commande.
+
+def get_tempvocmutes(guild_id: int) -> dict:
+    guild_conf = config.setdefault(str(guild_id), {})
+    return guild_conf.setdefault("tempvocmutes", {})
+
+
+def save_tempvocmutes(guild_id: int, tempvocmutes: dict) -> None:
+    guild_conf = config.setdefault(str(guild_id), {})
+    guild_conf["tempvocmutes"] = tempvocmutes
+    save_config(config)
+
+
+@bot.command(name="tempmute")
+async def tempmute_command(ctx: commands.Context, membre: discord.Member = None, duree: str = None, *, raison: str = None):
+    if not is_mod(ctx.author):
+        await ctx.send("❌ Cette commande est réservée aux Modérateurs et Gérants.")
+        return
+
+    if membre is None or duree is None:
+        await ctx.send("❌ Utilisation : `+tempmute @membre <durée ex: 10m/2h/1j> [raison]`")
+        return
+
+    if membre.voice is None or membre.voice.channel is None:
+        await ctx.send(f"❌ {membre.mention} n'est pas connecté à un salon vocal.")
+        return
+
+    secondes = parse_duration(duree)
+    if secondes is None:
+        await ctx.send("❌ Durée invalide. Utilise un format comme `10m`, `2h`, `1j`.")
+        return
+
+    raison = raison or "Aucune raison précisée."
+    fin = datetime.now(PARIS_TZ) + timedelta(seconds=secondes)
+
+    try:
+        await membre.edit(mute=True, reason=f"{raison} (tempmute vocal par {ctx.author}, {duree})")
+    except discord.Forbidden:
+        await ctx.send("❌ Je n'ai pas la permission de mute ce membre en vocal.")
+        return
+    except discord.HTTPException:
+        await ctx.send("❌ Erreur lors du mute vocal.")
+        return
+
+    tempvocmutes = get_tempvocmutes(ctx.guild.id)
+    tempvocmutes[str(membre.id)] = {
+        "unmute_at": fin.isoformat(),
+        "moderator_id": str(ctx.author.id),
+        "raison": raison,
+    }
+    save_tempvocmutes(ctx.guild.id, tempvocmutes)
+
+    embed = discord.Embed(title="🔇 Membre mute en vocal", color=discord.Color.dark_grey())
+    embed.add_field(name="Membre", value=membre.mention, inline=True)
+    embed.add_field(name="Durée", value=duree, inline=True)
+    embed.add_field(name="Raison", value=raison, inline=False)
+    embed.set_footer(text=f"Par {ctx.author} • Remise du micro automatique le {fin.strftime('%d/%m/%Y à %H:%M')} (heure de Paris)")
+    await ctx.send(embed=embed)
+
+    try:
+        await membre.send(
+            f"🔇 Ton micro a été coupé sur **{ctx.guild.name}** pour {duree}.\nRaison : {raison}"
+        )
+    except discord.HTTPException:
+        pass
+
+
+@tasks.loop(minutes=1)
+async def check_tempvocmutes_loop():
+    now = datetime.now(PARIS_TZ)
+    for guild in bot.guilds:
+        tempvocmutes = config.get(str(guild.id), {}).get("tempvocmutes", {})
+        for user_id_str, data in list(tempvocmutes.items()):
+            fin = _parse_dt(data.get("unmute_at"))
+            if not fin or now < fin:
+                continue
+
+            member = guild.get_member(int(user_id_str))
+            if member is not None:
+                try:
+                    await member.edit(mute=False, reason="Fin du mute vocal temporaire (+tempmute)")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+            del tempvocmutes[user_id_str]
+            save_tempvocmutes(guild.id, tempvocmutes)
+
+
+@check_tempvocmutes_loop.before_loop
+async def before_check_tempvocmutes_loop():
+    await bot.wait_until_ready()
  
 # ================================================================
 #              SYSTÈME DE SIGNALEMENT (/report)
@@ -6321,7 +6416,7 @@ async def on_ready():
             except Exception as e:
                 print(f"Erreur lors de la reconstruction du panneau de tickets {panel_id} : {e}")
 
-     try:
+         try:
         guild_obj = discord.Object(id=DEV_GUILD_ID)
 
         # 1) On copie les commandes (définies globalement dans le code) vers le
@@ -6340,17 +6435,8 @@ async def on_ready():
     except Exception as e:
         print(f"Erreur de synchronisation : {e}")
 
-    # ... le reste continue normalement (update_stats_loop, check_elu_semaine, etc.)
-
-        # 2) On vide ensuite la liste des commandes GLOBALES côté Discord.
-        #    Sans cette étape, si une synchro globale a déjà eu lieu une fois
-        #    (ex: `bot.tree.sync()` sans guild), Discord affiche chaque
-        #    commande en double (une version globale + une version serveur).
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()
-        print("Commandes globales nettoyées (évite les doublons dans /).")
-    except Exception as e:
-        print(f"Erreur de synchronisation : {e}")
+    for guild in bot.guilds:
+        await update_invites_cache(guild)
  
     for guild in bot.guilds:
         await update_invites_cache(guild)
@@ -6375,6 +6461,9 @@ async def on_ready():
 
     if not check_tempbans_loop.is_running():
         check_tempbans_loop.start()
+
+     if not check_tempvocmutes_loop.is_running():
+        check_tempvocmutes_loop.start()
 
     if not check_giveaways.is_running():
         check_giveaways.start()
