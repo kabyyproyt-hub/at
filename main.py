@@ -127,18 +127,17 @@ NORMAL_COMMANDS = [
     ("🎥 Concept", [
         ("`+concept list`", "Affiche la liste des notés du Concept."),
     ]),
-    ("📋 Report", [
+    ("📋 Report", [)
         ("`/report envoyer [@membre] [raison]`", "Signale discrètement un membre au staff."),
-    ]),
-    ("🐾 Animaux & Compagnons", [
+ 
+    ("🐾 Animaux & Compagnons", [)
         ("`/pet inventory`", "Affiche ton inventaire d'animaux capturés."),
         ("`/pet trade [@membre]`", "Propose un échange d'animal avec un autre membre."),
-    ]),
+ 
     ("📕 Guildes", [
         ("`/guilde create`", "Crée une guilde et ouvre le formulaire de création."),
         ("`+block guild [id]`", "Bloque l'XP d'une guilde adverse 30 min (1200$, 1x/jour, fondateur)."),
         ("`+xp fast`", "Booste l'XP de ta propre guilde pendant 5 min (1x/jour, fondateur)."),
-    ]),
 ]
  
 STAFF_COMMANDS = [
@@ -181,14 +180,14 @@ MOD_COMMANDS = HELPER_COMMANDS + [
 ]
 
 GERANT_COMMANDS = MOD_COMMANDS + [
-    ("``+ban @membre [raison]`", "Bannit un membre du serveur."),
-    ("``+unban <user_id> [raison]`", "Débannit un membre par son ID."),
-    ("``+lock`", "Verrouille le salon (seul le staff peut y écrire)."),
-    ("``+unlock`", "Déverrouille le salon."),
-    ("``+unwarn @membre [n°/all]`", "Retire un ou tous les avertissements d'un membre."),
-    ("``+add role @membre @role`", "Ajoute un rôle à un membre."),
-    ("``+remove role @membre @role`", "Retire un rôle à un membre."),
-    ("``+tempban @membre <durée> [raison]`", "Bannit temporairement un membre."),
+    ("`+ban @membre [raison]`", "Bannit un membre du serveur."),
+    ("`+unban <user_id> [raison]`", "Débannit un membre par son ID."),
+    ("`+lock`", "Verrouille le salon (seul le staff peut y écrire)."),
+    ("`+unlock`", "Déverrouille le salon."),
+    ("`+unwarn @membre [n°/all]`", "Retire un ou tous les avertissements d'un membre."),
+    ("`+add role @membre @role`", "Ajoute un rôle à un membre."),
+    ("`+remove role @membre @role`", "Retire un rôle à un membre."),
+    ("`+tempban @membre <durée> [raison]`", "Bannit temporairement un membre."),
 ]
 
 
