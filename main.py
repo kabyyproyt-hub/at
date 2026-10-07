@@ -29,7 +29,7 @@ DEV_GUILD_ID = 1537139988448153640, 1549842941307265144      # ID de ton serveur
 # ---- Hiérarchie de modération (Helper < Mod < Gérant) ----
 # Chaque rôle supérieur hérite automatiquement des permissions du rôle inférieur.
 HELPER_ROLE_NAME = "・Modérateur Test"
-MOD_ROLE_NAME = "⚒️┆Gestion staff"
+MOD_ROLE_NAME = "・Modérateur"
 GERANT_ROLE_NAME = "💎┆Gérant Staff"
  
 # ---- Élu de la semaine ----
