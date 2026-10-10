@@ -24,12 +24,9 @@ STAFF_ROLE_NAME = "STAFF"          # Nom exact du rôle staff sur ton serveur (u
 STATS_CATEGORY_NAME = "🧽 SERVEUR STATS"
 STATS_UPDATE_INTERVAL_MINUTES = 10      # Discord limite les renommages de salons (~2 / 10 min)
 CONFIG_FILE = "config.json"             # Stockage persistant des rôles autorisés à valider
-DEV_GUILD_ID = 1537139988448153640, 1549842941307265144      # ID de ton serveur, pour une synchro instantanée des slash commands
+DEV_GUILD_ID = 1537139988448153640      # ID de ton serveur, pour une synchro instantanée des slash commands
 
-# ---- Hiérarchie de modération (Helper < Mod < Gérant) ----
-# Chaque rôle supérieur hérite automatiquement des permissions du rôle inférieur.
-HELPER_ROLE_NAME = "・Modérateur Test"
-MOD_ROLE_NAME = "・Modérateur"
+# ---- Rôle Gérant (droits staff étendus) ----
 GERANT_ROLE_NAME = "💎┆Gérant Staff"
  
 # ---- Élu de la semaine ----
@@ -61,9 +58,8 @@ def is_staff(member: discord.Member) -> bool:
 
 
 def is_gerant(member: discord.Member) -> bool:
-    """Niveau le plus haut : ban, mute, lock/unlock, retrait de warns, +add role.
-    Inclut aussi le rôle STAFF_ROLE_NAME existant, pour ne rien casser des
-    fonctionnalités déjà réservées au staff (tickets, guildes, etc.)."""
+    """Droits staff étendus : rôle Gérant, administrateur, ou rôle STAFF_ROLE_NAME
+    existant (tickets, guildes, +add role, etc.)."""
     if member.guild_permissions.administrator:
         return True
     if any(role.name == GERANT_ROLE_NAME for role in member.roles):
@@ -71,20 +67,7 @@ def is_gerant(member: discord.Member) -> bool:
     return is_staff(member)
 
 
-def is_mod(member: discord.Member) -> bool:
-    """Niveau intermédiaire : mute, warn, clear. Ne peut PAS retirer de warns."""
-    if is_gerant(member):
-        return True
-    return any(role.name == MOD_ROLE_NAME for role in member.roles)
 
-
-def is_helper(member: discord.Member) -> bool:
-    """Niveau le plus bas : peut seulement warn. Ne peut PAS retirer de warns."""
-    if is_mod(member):
-        return True
-    return any(role.name == HELPER_ROLE_NAME for role in member.roles)
- 
- 
 # ---------------- Config persistante (rôles de validation) ----------------
  
 def load_config() -> dict:
@@ -119,9 +102,10 @@ def add_validator_role(guild_id: int, categorie: str, role_id: int) -> None:
 # ================================================================
  
 NORMAL_COMMANDS = [
-    ("⚙️ Utilitaires", [
+("⚙️ Utilitaires", [
         ("`+cmds`", "Affiche la liste des commandes disponibles."),
         ("`+ping`", "Affiche la latence du bot."),
+        ("`+servinfo`", "Affiche les statistiques du serveur (membres, en ligne, en vocal, boosts)."),
         ("`+invite-stats`", "Affiche combien de membres tu as invités sur le serveur."),
     ]),
     ("🎥 Concept", [
@@ -129,10 +113,6 @@ NORMAL_COMMANDS = [
     ]),
     ("📋 Report", [
         ("`/report envoyer [@membre] [raison]`", "Signale discrètement un membre au staff."),
-    ]),
-    ("🐾 Animaux & Compagnons", [
-        ("`/pet inventory`", "Affiche ton inventaire d'animaux capturés."),
-        ("`/pet trade [@membre]`", "Propose un échange d'animal avec un autre membre."),
     ]),
     ("📕 Guildes", [
         ("`/guilde create`", "Crée une guilde et ouvre le formulaire de création."),
@@ -145,7 +125,6 @@ STAFF_COMMANDS = [
     ("+absences", "Ouvre un formulaire pour déclarer une absence."),
     ("+role-react setup", "Crée un message à réactions qui donne des rôles."),
     ("/ticketsetup", "Crée un panneau de tickets personnalisable (staff)."),
-    ("/admin panel", "Ouvre le panneau d'administration : boost de chance x10, spawn x10 (staff)."),
     ("/soutiens", "Configure et affiche le panneau des soutiens du serveur (staff)."),
     ("+concept note @membre", "Notez une personne dans la listes des concepts."),
     ("+concept list reset", "Réinitialise la liste Concept."),
@@ -154,56 +133,6 @@ STAFF_COMMANDS = [
     ("/guilde verif", "Affiche les guildes en attente de vérification."),
     ("/guilde delete [id]", "Supprime une guilde par son ID."),
 ]
-
-# ---- Listes par niveau de permission (Helper < Mod < Gérant) ----
-PERMISSION_LEVELS = {
-    "helper": 90,
-    "mod": 100,
-    "gerant": 110,
-}
-
-PERMISSION_LABELS = {
-    "helper": "Modérateur Test",
-    "mod": "Modérateur",
-    "gerant": "Gérant Staff",
-}
-
-HELPER_COMMANDS = [
-    ("`+warn @membre <raison>`", "Donne un avertissement à un membre."),
-    ("`+warn list @membre`", "Affiche les avertissements d'un membre."),
-]
-
-MOD_COMMANDS = HELPER_COMMANDS + [
-    ("`+mute @membre <durée> [raison]`", "Rend un membre muet (ex : 10m, 2h, 1j)."),
-    ("`+unmute @membre`", "Retire le mute d'un membre."),
-    ("`+tempban @membre <durée> [raison]`", "Bannit temporairement un membre (ex : 10m, 2h, 1j, 2w)."),
-    ("`/clear [nombre]`", "Supprime un nombre de messages dans le salon."),
-]
-
-GERANT_COMMANDS = MOD_COMMANDS + [
-    ("`+ban @membre [raison]`", "Bannit un membre du serveur."),
-    ("`+unban <user_id> [raison]`", "Débannit un membre par son ID."),
-    ("`+lock`", "Verrouille le salon (seul le staff peut y écrire)."),
-    ("`+unlock`", "Déverrouille le salon."),
-    ("`+unwarn @membre [n°/all]`", "Retire un ou tous les avertissements d'un membre."),
-    ("`+add role @membre @role`", "Ajoute un rôle à un membre."),
-    ("`+remove role @membre @role`", "Retire un rôle à un membre."),
-    ("`+tempban @membre <durée> [raison]`", "Bannit temporairement un membre."),
-]
-
-
-def build_permission_commands_embed(cle_permission: str, couleur: discord.Color, commandes: list) -> discord.Embed:
-    label = PERMISSION_LABELS[cle_permission]
-    niveau = PERMISSION_LEVELS[cle_permission]
-    embed = discord.Embed(
-        title=f"📘 Commandes accessibles avec la permission \"{label}\"",
-        description=f"Niveau : **{niveau}**\nPréfixe : **+**",
-        color=couleur,
-    )
-    lignes = "\n".join(f"`{name}` — {desc}" for name, desc in commandes)
-    embed.add_field(name="🔨 Modération", value=lignes, inline=False)
-    return embed
-
 
 def build_staff_commands_pages() -> list:
     """Découpe STAFF_COMMANDS en 2 pages d'embeds à peu près égales."""
@@ -278,6 +207,29 @@ async def ping_command(ctx: commands.Context):
     await ctx.send(embed=embed)
 
 
+SERVINFO_NOM = "Rinka"  # Nom affiché dans le titre de +servinfo
+
+
+@bot.command(name="servinfo")
+async def servinfo_command(ctx: commands.Context):
+    if ctx.guild is None:
+        return
+
+    guild = ctx.guild
+    membres = guild.member_count
+    en_ligne = sum(1 for m in guild.members if m.status != discord.Status.offline)
+    en_vocal = sum(1 for m in guild.members if m.voice and m.voice.channel)
+    boosts = guild.premium_subscription_count
+
+    await ctx.send(
+        f"# {SERVINFO_NOM} #Statistiques !\n\n"
+        f"*Membres :* **{membres}**\n"
+        f"*En ligne :* **{en_ligne}**\n"
+        f"*En Vocal :* **{en_vocal}**\n"
+        f"*Boost :* **{boosts}**"
+    )
+
+
 @bot.command(name="cmds")
 async def cmds_command(ctx: commands.Context, sous_commande: str = None):
     if sous_commande and sous_commande.lower() == "staff":
@@ -290,36 +242,11 @@ async def cmds_command(ctx: commands.Context, sous_commande: str = None):
         view.message = message
         return
 
-    if sous_commande and sous_commande.lower() == "helper":
-        if not is_helper(ctx.author):
-            await ctx.send("❌ Tu n'as pas la permission de voir les commandes Helper.")
-            return
-        embed = build_permission_commands_embed("helper", discord.Color.green(), HELPER_COMMANDS)
-        await ctx.send(embed=embed)
-        return
-
-    if sous_commande and sous_commande.lower() == "mod":
-        if not is_mod(ctx.author):
-            await ctx.send("❌ Tu n'as pas la permission de voir les commandes Mod.")
-            return
-        embed = build_permission_commands_embed("mod", discord.Color.orange(), MOD_COMMANDS)
-        await ctx.send(embed=embed)
-        return
-
-    if sous_commande and sous_commande.lower() in {"gerant", "gérant"}:
-        if not is_gerant(ctx.author):
-            await ctx.send("❌ Tu n'as pas la permission de voir les commandes Gérant.")
-            return
-        embed = build_permission_commands_embed("gerant", discord.Color.red(), GERANT_COMMANDS)
-        await ctx.send(embed=embed)
-        return
-
     embed = discord.Embed(title="📜 Liste des commandes", color=discord.Color.blurple())
-    for name, desc in NORMAL_COMMANDS:
-        embed.add_field(name=name, value=desc, inline=False)
-    embed.set_footer(
-        text="+cmds staff (staff) • +cmds helper / mod / gerant selon ta permission de modération."
-    )
+    for categorie, commandes in NORMAL_COMMANDS:
+        lignes = "\n".join(f"{nom} — {desc}" for nom, desc in commandes)
+        embed.add_field(name=categorie, value=lignes, inline=False)
+    embed.set_footer(text="Tape +cmds staff si tu es membre du staff pour voir plus de commandes.")
     await ctx.send(embed=embed)
  
  
@@ -500,14 +427,6 @@ QUETES_CATALOGUE = {
         "type": "badges",
         "objectif": 2,
         "recompense_argent": 100,
-    },
-    "tokyo_ghoul_chasse": {
-        "titre": "👁️ Instinct de Chasseur",
-        "anime": "Tokyo Ghoul",
-        "description": "Traquer les créatures sauvages : cumuler **500 captures d'animaux** parmi les membres.",
-        "type": "captures",
-        "objectif": 500,
-        "recompense_argent": 250,
     },
     "chainsaw_man_diable": {
         "titre": "🪚 Le Diable Tronçonneuse",
@@ -846,9 +765,6 @@ def get_quest_value(discord_guild_id: int, guild_data: dict, quest: dict) -> flo
         return int(guild_data.get("argent_total", 0))
     if type_quete == "badges":
         return len(guild_data.get("badges", []))
-    if type_quete == "captures":
-        collections = config.get(str(discord_guild_id), {}).get("animal_collections", {})
-        return sum(len(collections.get(str(uid), [])) for uid in guild_data.get("members", []))
     return 0
 
 
@@ -1917,70 +1833,6 @@ async def xp_command(ctx: commands.Context, sous_commande: str = None):
 
 
 # ================================================================
-#                        +lock / +unlock
-# ================================================================
-
-@bot.command(name="lock")
-async def lock_command(ctx: commands.Context):
-    if not is_gerant(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Gérants.")
-        return
-
-    staff_role = discord.utils.get(ctx.guild.roles, name=STAFF_ROLE_NAME)
-
-    overwrite_everyone = ctx.channel.overwrites_for(ctx.guild.default_role)
-    overwrite_everyone.send_messages = False
-
-    try:
-        await ctx.channel.set_permissions(
-            ctx.guild.default_role, overwrite=overwrite_everyone, reason=f"Salon verrouillé par {ctx.author}"
-        )
-        if staff_role:
-            overwrite_staff = ctx.channel.overwrites_for(staff_role)
-            overwrite_staff.send_messages = True
-            await ctx.channel.set_permissions(
-                staff_role, overwrite=overwrite_staff, reason=f"Accès staff maintenu (verrouillage par {ctx.author})"
-            )
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de modifier les permissions de ce salon.")
-        return
-
-    embed = discord.Embed(
-        title="🔒 Salon verrouillé",
-        description=f"Seuls les membres avec le rôle **{STAFF_ROLE_NAME}** peuvent désormais écrire ici.",
-        color=discord.Color.red(),
-    )
-    embed.set_footer(text=f"Verrouillé par {ctx.author}")
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="unlock")
-async def unlock_command(ctx: commands.Context):
-    if not is_gerant(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Gérants.")
-        return
-
-    overwrite_everyone = ctx.channel.overwrites_for(ctx.guild.default_role)
-    overwrite_everyone.send_messages = None  # retire l'overwrite explicite (retour à l'héritage normal)
-
-    try:
-        await ctx.channel.set_permissions(
-            ctx.guild.default_role, overwrite=overwrite_everyone, reason=f"Salon déverrouillé par {ctx.author}"
-        )
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de modifier les permissions de ce salon.")
-        return
-
-    embed = discord.Embed(
-        title="🔓 Salon déverrouillé",
-        description="Tout le monde peut de nouveau écrire ici.",
-        color=discord.Color.green(),
-    )
-    embed.set_footer(text=f"Déverrouillé par {ctx.author}")
-    await ctx.send(embed=embed)
- 
- 
-# ================================================================
 #                        +absences
 # ================================================================
  
@@ -2999,233 +2851,9 @@ async def config_tiktok_cmd(
 bot.tree.add_command(config_group)
  
  
-# ================================================================
-#      SYSTÈME D'ANIMAUX À CAPTURER (optionnel, /animal config)
-# ================================================================
-#
-# Chaque jour, à une heure aléatoire, un animal sauvage apparaît dans le
-# salon configuré. Le premier membre à cliquer sur "Capturer !" le remporte.
-# La rareté de l'animal qui apparaît est tirée au sort selon les pourcentages
-# ci-dessous, puis un animal est choisi au hasard parmi ceux de cette rareté.
-
-ANIMAUX = [
-    {"nom": "Yuzenn", "rarete": "Owner"},
-    {"nom": "Snow", "rarete": "Owner"},
-    {"nom": "Rebeu", "rarete": "Co-Owner"},
-    {"nom": "Cafard", "rarete": "Modérateur"},
-    {"nom": "R0tten", "rarete": "VIP"},
-    {"nom": "Lgz", "rarete": "VIP"},
-    {"nom": "9z_wl", "rarete": "Membre"},
-    {"nom": "Beurre2KKhouette", "rarete": "Membre"},
-    {"nom": "Slayzxx", "rarete": "Membre"},
-]
-
-RARETE_WEIGHTS = {
-    "Owner": 0.5,
-    "Co-Owner": 2,
-    "Modérateur": 10,
-    "VIP": 28,
-    "Membre": 59.5,
-}
-
-RARETE_COLORS = {
-    "Owner": discord.Color.red(),
-    "Co-Owner": discord.Color.orange(),
-    "Modérateur": discord.Color.purple(),
-    "VIP": discord.Color.gold(),
-    "Membre": discord.Color.light_grey(),
-}
-
-ANIMAL_SPAWN_HOUR_MIN = 8       # Heure la plus tôt possible pour un spawn (heure de Paris)
-ANIMAL_SPAWN_HOUR_MAX = 23      # Heure la plus tardive possible pour un spawn
-ANIMAL_DESPAWN_SECONDS = 300    # Temps disponible pour capturer l'animal (5 minutes) avant qu'il ne s'enfuie
-ANIMAL_CHECK_INTERVAL_MINUTES = 1
-
-# Boost de chance temporaire (déclenché depuis /admin panel). En mémoire
-# uniquement : {guild_id: {"multiplier": float, "expires_at": datetime}}
-LUCK_BOOST: dict[int, dict] = {}
-
-
-def get_active_luck_multiplier(guild_id: int) -> float:
-    boost = LUCK_BOOST.get(guild_id)
-    if not boost:
-        return 1.0
-    if datetime.now(PARIS_TZ) >= boost["expires_at"]:
-        del LUCK_BOOST[guild_id]
-        return 1.0
-    return boost["multiplier"]
-
-
-def pick_random_animal(guild_id: int | None = None) -> dict:
-    """Tire une rareté selon les pourcentages configurés, puis un animal
-    au hasard parmi ceux de cette rareté. Si un boost de chance est actif sur
-    le serveur, les raretés autres que 'Membre' voient leur poids multiplié."""
-    raretes = list(RARETE_WEIGHTS.keys())
-    poids = list(RARETE_WEIGHTS.values())
-
-    if guild_id is not None:
-        multiplicateur = get_active_luck_multiplier(guild_id)
-        if multiplicateur != 1.0:
-            poids = [
-                p if rarete == "Membre" else p * multiplicateur
-                for rarete, p in zip(raretes, poids)
-            ]
-
-    rarete_choisie = random.choices(raretes, weights=poids, k=1)[0]
-    candidats = [a for a in ANIMAUX if a["rarete"] == rarete_choisie]
-    return random.choice(candidats)
-
-
-def compute_next_spawn_datetime(base: datetime) -> datetime:
-    """Calcule une heure aléatoire du jour suivant `base`, entre
-    ANIMAL_SPAWN_HOUR_MIN et ANIMAL_SPAWN_HOUR_MAX (heure de Paris)."""
-    heure = random.randint(ANIMAL_SPAWN_HOUR_MIN, ANIMAL_SPAWN_HOUR_MAX)
-    minute = random.randint(0, 59)
-    prochain_jour = base + timedelta(days=1)
-    return prochain_jour.replace(hour=heure, minute=minute, second=0, microsecond=0)
-
-
-def build_animal_spawn_embed(animal: dict) -> discord.Embed:
-    color = RARETE_COLORS.get(animal["rarete"], discord.Color.blurple())
-    embed = discord.Embed(
-        title="🐾 Un animal sauvage est apparu !",
-        description=f"Un **{animal['nom']}** rôde dans les parages...\nSois le premier à cliquer pour le capturer !",
-        color=color,
-    )
-    embed.add_field(name="🐾 Espèce", value=animal["rarete"], inline=True)
-    embed.add_field(name="⭐ Rareté", value=animal["rarete"], inline=True)
-    embed.set_footer(text="Ce compagnon sauvage attend un maître...")
-    return embed
-
-
-def build_animal_captured_embed(animal: dict, user: discord.abc.User) -> discord.Embed:
-    color = RARETE_COLORS.get(animal["rarete"], discord.Color.green())
-    embed = discord.Embed(
-        title=f"{animal['nom']} — Capturé !",
-        description=f"{user.mention} a capturé **{animal['nom']}** !",
-        color=color,
-    )
-    embed.add_field(name="🐾 Espèce", value=animal["rarete"], inline=True)
-    embed.add_field(name="⭐ Rareté", value=animal["rarete"], inline=True)
-    date_str = datetime.now(PARIS_TZ).strftime("%d/%m/%Y %H:%M")
-    embed.set_footer(text=f"Ce compagnon a trouvé un maître. • {date_str}")
-    return embed
-
-
-def build_animal_escaped_embed(animal: dict) -> discord.Embed:
-    embed = discord.Embed(
-        title=f"{animal['nom']} — Enfui !",
-        description=f"Personne n'a capturé **{animal['nom']}** à temps... il s'est enfui. 😢",
-        color=discord.Color.dark_grey(),
-    )
-    embed.add_field(name="🐾 Espèce", value=animal["rarete"], inline=True)
-    embed.add_field(name="⭐ Rareté", value=animal["rarete"], inline=True)
-    return embed
-
-
-class AnimalCaptureView(discord.ui.View):
-    """Vue temporaire (non persistante) affichée sous un animal sauvage.
-    Le premier clic sur le bouton remporte l'animal."""
-
-    def __init__(self, animal: dict, guild_id: int):
-        super().__init__(timeout=ANIMAL_DESPAWN_SECONDS)
-        self.animal = animal
-        self.guild_id = guild_id
-        self.captured = False
-        self.message: discord.Message | None = None
-
-    @discord.ui.button(label="🎯 Capturer !", style=discord.ButtonStyle.primary)
-    async def capturer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.captured:
-            await interaction.response.send_message(
-                "😢 Trop tard, quelqu'un d'autre l'a déjà capturé !", ephemeral=True
-            )
-            return
-
-        # Verrouillage immédiat (avant tout await) pour éviter qu'un double-clic
-        # simultané ne fasse gagner l'animal à deux personnes à la fois.
-        self.captured = True
-
-        guild_conf = config.setdefault(str(self.guild_id), {})
-        collections = guild_conf.setdefault("animal_collections", {})
-        user_animaux = collections.setdefault(str(interaction.user.id), [])
-        user_animaux.append(self.animal["nom"])
-        save_config(config)
-
-        embed = build_animal_captured_embed(self.animal, interaction.user)
-        button.style = discord.ButtonStyle.success
-        button.label = "✅ Capturé !"
-        button.disabled = True
-        self.stop()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-        if interaction.guild is not None:
-            try:
-                await check_and_complete_quetes(interaction.guild)
-            except discord.HTTPException:
-                pass
-
-    async def on_timeout(self):
-        if self.captured or self.message is None:
-            return
-        embed = build_animal_escaped_embed(self.animal)
-        for child in self.children:
-            child.disabled = True
-        try:
-            await self.message.edit(embed=embed, view=self)
-        except discord.HTTPException:
-            pass
-
-
-async def spawn_animal(guild: discord.Guild, channel: discord.abc.Messageable) -> None:
-    animal = pick_random_animal(guild.id)
-    embed = build_animal_spawn_embed(animal)
-    view = AnimalCaptureView(animal, guild.id)
-    message = await channel.send(embed=embed, view=view)
-    view.message = message
-
-
-@tasks.loop(minutes=ANIMAL_CHECK_INTERVAL_MINUTES)
-async def check_animal_spawns():
-    now = datetime.now(PARIS_TZ)
-    for guild in bot.guilds:
-        guild_conf = config.get(str(guild.id), {})
-        animal_conf = guild_conf.get("animal_config")
-        if not animal_conf or not animal_conf.get("channel_id"):
-            continue
-
-        next_spawn_iso = animal_conf.get("next_spawn")
-        if not next_spawn_iso:
-            # Pas encore de spawn programmé : on en programme un premier
-            # (dès aujourd'hui, à une heure aléatoire restante).
-            next_dt = compute_next_spawn_datetime(now - timedelta(days=1))
-            animal_conf["next_spawn"] = next_dt.isoformat()
-            save_config(config)
-            continue
-
-        next_dt = datetime.fromisoformat(next_spawn_iso)
-        if next_dt.tzinfo is None:
-            next_dt = next_dt.replace(tzinfo=PARIS_TZ)
-
-        if now >= next_dt:
-            channel = guild.get_channel(animal_conf["channel_id"])
-            if channel:
-                try:
-                    await spawn_animal(guild, channel)
-                except discord.HTTPException:
-                    pass
-            animal_conf["next_spawn"] = compute_next_spawn_datetime(now).isoformat()
-            save_config(config)
-
-
-@check_animal_spawns.before_loop
-async def before_check_animal_spawns():
-    await bot.wait_until_ready()
-
-
 # ---- Filet de sécurité pour les quêtes de guilde ----
 # Les quêtes sont normalement vérifiées juste après chaque action pertinente
-# (message, achat de badge, capture, arrivée d'un membre), mais cette boucle
+# (message, achat de badge, arrivée d'un membre), mais cette boucle
 # passe aussi régulièrement pour rattraper tout cas manqué (redémarrage du
 # bot, guilde vérifiée après-coup par le staff, etc.).
 @tasks.loop(minutes=2)
@@ -3242,544 +2870,6 @@ async def before_check_quetes_loop():
     await bot.wait_until_ready()
 
 
-animal_group = app_commands.Group(name="animal", description="Système d'animaux à capturer")
-
-
-@animal_group.command(name="config", description="[Staff] Active/configure le système d'animaux à capturer")
-@app_commands.describe(salon="Salon où les animaux sauvages apparaîtront")
-async def animal_config_cmd(interaction: discord.Interaction, salon: discord.TextChannel):
-    if not is_staff(interaction.user):
-        await interaction.response.send_message(
-            "❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
-        )
-        return
-
-    guild_conf = config.setdefault(str(interaction.guild.id), {})
-    animal_conf = guild_conf.setdefault("animal_config", {})
-    animal_conf["channel_id"] = salon.id
-    if "next_spawn" not in animal_conf:
-        premiere_prog = compute_next_spawn_datetime(datetime.now(PARIS_TZ) - timedelta(days=1))
-        animal_conf["next_spawn"] = premiere_prog.isoformat()
-    save_config(config)
-
-    await interaction.response.send_message(
-        f"✅ Système d'animaux activé ! Un animal apparaîtra chaque jour à une heure aléatoire "
-        f"(entre {ANIMAL_SPAWN_HOUR_MIN}h et {ANIMAL_SPAWN_HOUR_MAX}h) dans {salon.mention}.",
-        ephemeral=True,
-    )
-
-
-@animal_group.command(name="desactiver", description="[Staff] Désactive le système d'animaux")
-async def animal_desactiver_cmd(interaction: discord.Interaction):
-    if not is_staff(interaction.user):
-        await interaction.response.send_message(
-            "❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
-        )
-        return
-
-    guild_conf = config.setdefault(str(interaction.guild.id), {})
-    if "animal_config" in guild_conf:
-        del guild_conf["animal_config"]
-        save_config(config)
-
-    await interaction.response.send_message("✅ Système d'animaux désactivé sur ce serveur.", ephemeral=True)
-
-
-@animal_group.command(name="forcespawn", description="[Staff] Force l'apparition immédiate d'un animal")
-async def animal_forcespawn_cmd(interaction: discord.Interaction):
-    if not is_staff(interaction.user):
-        await interaction.response.send_message(
-            "❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
-        )
-        return
-
-    guild_conf = config.get(str(interaction.guild.id), {})
-    animal_conf = guild_conf.get("animal_config")
-    if not animal_conf or not animal_conf.get("channel_id"):
-        await interaction.response.send_message(
-            "❌ Le système d'animaux n'est pas configuré. Utilise `/animal config` d'abord.", ephemeral=True
-        )
-        return
-
-    channel = interaction.guild.get_channel(animal_conf["channel_id"])
-    if channel is None:
-        await interaction.response.send_message("❌ Le salon configuré est introuvable.", ephemeral=True)
-        return
-
-    await interaction.response.send_message(f"✅ Un animal va apparaître dans {channel.mention} !", ephemeral=True)
-    await spawn_animal(interaction.guild, channel)
-
-
-@animal_group.command(name="collection", description="Affiche les animaux que tu as capturés")
-async def animal_collection_cmd(interaction: discord.Interaction):
-    guild_conf = config.get(str(interaction.guild.id), {})
-    collections = guild_conf.get("animal_collections", {})
-    mes_animaux = collections.get(str(interaction.user.id), [])
-
-    if not mes_animaux:
-        await interaction.response.send_message("Tu n'as encore capturé aucun animal.", ephemeral=True)
-        return
-
-    compteur: dict[str, int] = {}
-    for nom in mes_animaux:
-        compteur[nom] = compteur.get(nom, 0) + 1
-
-    lignes = []
-    for nom, count in sorted(compteur.items(), key=lambda x: -x[1]):
-        rarete = next((a["rarete"] for a in ANIMAUX if a["nom"] == nom), "?")
-        lignes.append(f"**{nom}** ({rarete}) x{count}")
-
-    embed = discord.Embed(
-        title=f"🐾 Collection de {interaction.user.display_name}",
-        description="\n".join(lignes),
-        color=discord.Color.blurple(),
-    )
-    embed.set_footer(text=f"{len(mes_animaux)} capture(s) au total")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-@animal_group.command(name="classement", description="Affiche le classement des meilleurs chasseurs d'animaux")
-async def animal_classement_cmd(interaction: discord.Interaction):
-    guild_conf = config.get(str(interaction.guild.id), {})
-    collections = guild_conf.get("animal_collections", {})
-
-    if not collections:
-        await interaction.response.send_message("Personne n'a encore capturé d'animal sur ce serveur.", ephemeral=True)
-        return
-
-    classement = sorted(collections.items(), key=lambda x: -len(x[1]))[:10]
-    lignes = []
-    for i, (uid, animaux) in enumerate(classement, start=1):
-        member = interaction.guild.get_member(int(uid))
-        nom = member.mention if member else f"<@{uid}>"
-        lignes.append(f"**#{i}** — {nom} : {len(animaux)} capture(s)")
-
-    embed = discord.Embed(
-        title="🏆 Classement des chasseurs d'animaux",
-        description="\n".join(lignes),
-        color=discord.Color.gold(),
-    )
-    await interaction.response.send_message(embed=embed)
-
-
-bot.tree.add_command(animal_group)
- 
- 
-# ================================================================
-#      INVENTAIRE ET ÉCHANGES D'ANIMAUX (/pet inventory, /pet trade)
-# ================================================================
-#
-# /pet trade propose un échange 1 contre 1 : l'initiateur choisit un de ses
-# animaux à donner et un animal que la cible possède déjà à recevoir. La
-# cible doit ensuite cliquer sur "Accepter" pour que l'échange soit effectué.
-
-def get_animal_counts(guild_id: int, user_id: int) -> dict:
-    """Retourne {nom_animal: quantité} pour un membre donné."""
-    guild_conf = config.get(str(guild_id), {})
-    animaux_liste = guild_conf.get("animal_collections", {}).get(str(user_id), [])
-    compteur: dict[str, int] = {}
-    for nom in animaux_liste:
-        compteur[nom] = compteur.get(nom, 0) + 1
-    return compteur
-
-
-def get_animal_rarete(nom: str) -> str:
-    return next((a["rarete"] for a in ANIMAUX if a["nom"] == nom), "?")
-
-
-class PetTradeConfirmView(discord.ui.View):
-    """Vue affichée dans le salon, visible par la cible de l'échange, qui doit
-    accepter ou refuser."""
-
-    def __init__(self, initiateur: discord.Member, cible: discord.Member, animal_initiateur: str, animal_cible: str):
-        super().__init__(timeout=300)
-        self.initiateur = initiateur
-        self.cible = cible
-        self.animal_initiateur = animal_initiateur
-        self.animal_cible = animal_cible
-        self.resolved = False
-        self.message: discord.Message | None = None
-
-    @discord.ui.button(label="✅ Accepter", style=discord.ButtonStyle.success)
-    async def accepter(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.cible.id:
-            await interaction.response.send_message(
-                "❌ Seul(e) la personne visée par cet échange peut y répondre.", ephemeral=True
-            )
-            return
-        if self.resolved:
-            return
-        self.resolved = True
-
-        guild_conf = config.setdefault(str(interaction.guild.id), {})
-        collections = guild_conf.setdefault("animal_collections", {})
-        animaux_initiateur = collections.setdefault(str(self.initiateur.id), [])
-        animaux_cible = collections.setdefault(str(self.cible.id), [])
-
-        if self.animal_initiateur not in animaux_initiateur or self.animal_cible not in animaux_cible:
-            self.stop()
-            for child in self.children:
-                child.disabled = True
-            await interaction.response.edit_message(
-                content="❌ L'un des deux animaux n'est plus disponible (déjà échangé ?). Échange annulé.",
-                embed=None,
-                view=self,
-            )
-            return
-
-        animaux_initiateur.remove(self.animal_initiateur)
-        animaux_initiateur.append(self.animal_cible)
-        animaux_cible.remove(self.animal_cible)
-        animaux_cible.append(self.animal_initiateur)
-        save_config(config)
-
-        self.stop()
-        for child in self.children:
-            child.disabled = True
-
-        embed = discord.Embed(
-            title="✅ Échange effectué !",
-            description=(
-                f"{self.initiateur.mention} a donné **{self.animal_initiateur}** et reçu **{self.animal_cible}**.\n"
-                f"{self.cible.mention} a donné **{self.animal_cible}** et reçu **{self.animal_initiateur}**."
-            ),
-            color=discord.Color.green(),
-        )
-        await interaction.response.edit_message(content=None, embed=embed, view=self)
-
-    @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger)
-    async def refuser(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.cible.id:
-            await interaction.response.send_message(
-                "❌ Seul(e) la personne visée par cet échange peut y répondre.", ephemeral=True
-            )
-            return
-        if self.resolved:
-            return
-        self.resolved = True
-        self.stop()
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(
-            content=f"❌ {self.cible.mention} a refusé l'échange.", embed=None, view=self
-        )
-
-    async def on_timeout(self):
-        if self.resolved or self.message is None:
-            return
-        for child in self.children:
-            child.disabled = True
-        try:
-            await self.message.edit(content="⏱️ Cet échange a expiré (personne n'a répondu à temps).", embed=None, view=self)
-        except discord.HTTPException:
-            pass
-
-
-class PetTradeSetupView(discord.ui.View):
-    """Vue éphémère (visible seulement par l'initiateur) pour choisir les deux
-    animaux concernés avant d'envoyer la proposition."""
-
-    def __init__(self, initiateur: discord.Member, cible: discord.Member, mes_animaux: list, leurs_animaux: list):
-        super().__init__(timeout=120)
-        self.initiateur = initiateur
-        self.cible = cible
-        self.mon_choix: str | None = None
-        self.leur_choix: str | None = None
-
-        self.select_mon_animal = discord.ui.Select(
-            placeholder="Ton animal à proposer",
-            options=self._build_options(mes_animaux),
-            min_values=1,
-            max_values=1,
-        )
-        self.select_mon_animal.callback = self.on_select_mon_animal
-        self.add_item(self.select_mon_animal)
-
-        self.select_leur_animal = discord.ui.Select(
-            placeholder=f"Animal de {cible.display_name} à recevoir",
-            options=self._build_options(leurs_animaux),
-            min_values=1,
-            max_values=1,
-        )
-        self.select_leur_animal.callback = self.on_select_leur_animal
-        self.add_item(self.select_leur_animal)
-
-        self.bouton_proposer = discord.ui.Button(
-            label="Proposer l'échange", style=discord.ButtonStyle.primary, disabled=True
-        )
-        self.bouton_proposer.callback = self.on_proposer
-        self.add_item(self.bouton_proposer)
-
-    @staticmethod
-    def _build_options(animaux_liste: list) -> list:
-        uniques = sorted(set(animaux_liste))
-        options = []
-        for nom in uniques[:25]:
-            rarete = get_animal_rarete(nom)
-            count = animaux_liste.count(nom)
-            options.append(discord.SelectOption(label=nom, description=f"{rarete} • x{count}", value=nom))
-        return options
-
-    def _maj_bouton(self):
-        self.bouton_proposer.disabled = not (self.mon_choix and self.leur_choix)
-
-    async def on_select_mon_animal(self, interaction: discord.Interaction):
-        if interaction.user.id != self.initiateur.id:
-            await interaction.response.send_message("❌ Ce n'est pas ton échange.", ephemeral=True)
-            return
-        self.mon_choix = self.select_mon_animal.values[0]
-        self._maj_bouton()
-        await interaction.response.edit_message(view=self)
-
-    async def on_select_leur_animal(self, interaction: discord.Interaction):
-        if interaction.user.id != self.initiateur.id:
-            await interaction.response.send_message("❌ Ce n'est pas ton échange.", ephemeral=True)
-            return
-        self.leur_choix = self.select_leur_animal.values[0]
-        self._maj_bouton()
-        await interaction.response.edit_message(view=self)
-
-    async def on_proposer(self, interaction: discord.Interaction):
-        if interaction.user.id != self.initiateur.id:
-            await interaction.response.send_message("❌ Ce n'est pas ton échange.", ephemeral=True)
-            return
-
-        guild_conf = config.get(str(interaction.guild.id), {})
-        collections = guild_conf.get("animal_collections", {})
-        mes_animaux_actuels = collections.get(str(self.initiateur.id), [])
-        leurs_animaux_actuels = collections.get(str(self.cible.id), [])
-
-        if self.mon_choix not in mes_animaux_actuels:
-            self.stop()
-            await interaction.response.edit_message(
-                content=f"❌ Tu ne possèdes plus **{self.mon_choix}**. Échange annulé.", view=None
-            )
-            return
-        if self.leur_choix not in leurs_animaux_actuels:
-            self.stop()
-            await interaction.response.edit_message(
-                content=f"❌ {self.cible.mention} ne possède plus **{self.leur_choix}**. Échange annulé.", view=None
-            )
-            return
-
-        self.stop()
-        await interaction.response.edit_message(content=f"✅ Proposition envoyée à {self.cible.mention} !", view=None)
-
-        rarete_mon = get_animal_rarete(self.mon_choix)
-        rarete_leur = get_animal_rarete(self.leur_choix)
-        embed = discord.Embed(
-            title="🔄 Proposition d'échange",
-            description=(
-                f"{self.initiateur.mention} propose un échange à {self.cible.mention} :\n\n"
-                f"**{self.initiateur.display_name}** donne : **{self.mon_choix}** ({rarete_mon})\n"
-                f"**{self.cible.display_name}** donne : **{self.leur_choix}** ({rarete_leur})"
-            ),
-            color=discord.Color.blurple(),
-        )
-        embed.set_footer(text=f"{self.cible.display_name}, clique ci-dessous pour répondre (5 min).")
-
-        confirm_view = PetTradeConfirmView(self.initiateur, self.cible, self.mon_choix, self.leur_choix)
-        message = await interaction.channel.send(content=self.cible.mention, embed=embed, view=confirm_view)
-        confirm_view.message = message
-
-    async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
-
-
-pet_group = app_commands.Group(name="pet", description="Gère tes animaux capturés")
-
-
-@pet_group.command(name="inventory", description="Affiche les animaux que tu as capturés")
-async def pet_inventory_cmd(interaction: discord.Interaction):
-    compteur = get_animal_counts(interaction.guild.id, interaction.user.id)
-
-    if not compteur:
-        await interaction.response.send_message("Tu n'as encore capturé aucun animal.", ephemeral=True)
-        return
-
-    lignes = []
-    for nom, count in sorted(compteur.items(), key=lambda x: -x[1]):
-        rarete = get_animal_rarete(nom)
-        lignes.append(f"**{nom}** ({rarete}) x{count}")
-
-    embed = discord.Embed(
-        title=f"🐾 Inventaire de {interaction.user.display_name}",
-        description="\n".join(lignes),
-        color=discord.Color.blurple(),
-    )
-    embed.set_footer(text=f"{sum(compteur.values())} capture(s) au total")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-@pet_group.command(name="trade", description="Propose un échange d'animal avec un autre membre")
-@app_commands.describe(membre="Le membre avec qui échanger un animal")
-async def pet_trade_cmd(interaction: discord.Interaction, membre: discord.Member):
-    if membre.id == interaction.user.id:
-        await interaction.response.send_message("❌ Tu ne peux pas échanger avec toi-même.", ephemeral=True)
-        return
-    if membre.bot:
-        await interaction.response.send_message("❌ Tu ne peux pas échanger avec un bot.", ephemeral=True)
-        return
-
-    guild_conf = config.get(str(interaction.guild.id), {})
-    collections = guild_conf.get("animal_collections", {})
-    mes_animaux = collections.get(str(interaction.user.id), [])
-    leurs_animaux = collections.get(str(membre.id), [])
-
-    if not mes_animaux:
-        await interaction.response.send_message("❌ Tu n'as aucun animal à échanger.", ephemeral=True)
-        return
-    if not leurs_animaux:
-        await interaction.response.send_message(f"❌ {membre.mention} n'a aucun animal à échanger.", ephemeral=True)
-        return
-
-    view = PetTradeSetupView(interaction.user, membre, mes_animaux, leurs_animaux)
-    await interaction.response.send_message(
-        f"🔄 Configure ton échange avec {membre.mention} : choisis l'animal que tu proposes et celui que tu veux recevoir.",
-        view=view,
-        ephemeral=True,
-    )
-
-
-@pet_group.command(name="spawn", description="[Staff] Force l'apparition immédiate d'un animal sauvage")
-async def pet_spawn_cmd(interaction: discord.Interaction):
-    if not is_staff(interaction.user):
-        await interaction.response.send_message(
-            "❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
-        )
-        return
-
-    guild_conf = config.get(str(interaction.guild.id), {})
-    animal_conf = guild_conf.get("animal_config")
-    if not animal_conf or not animal_conf.get("channel_id"):
-        await interaction.response.send_message(
-            "❌ Le système d'animaux n'est pas configuré. Utilise `/animal config` d'abord.", ephemeral=True
-        )
-        return
-
-    channel = interaction.guild.get_channel(animal_conf["channel_id"])
-    if channel is None:
-        await interaction.response.send_message("❌ Le salon configuré est introuvable.", ephemeral=True)
-        return
-
-    await interaction.response.send_message(f"✅ Un animal va apparaître dans {channel.mention} !", ephemeral=True)
-    await spawn_animal(interaction.guild, channel)
-
-
-bot.tree.add_command(pet_group)
- 
- 
-# ================================================================
-#           PANNEAU D'ADMINISTRATION (/admin panel)
-# ================================================================
-#
-# Panneau (visible uniquement par la personne qui l'ouvre) avec des boutons
-# pour déclencher des événements liés au système d'animaux : un boost de
-# chance temporaire et l'apparition de plusieurs animaux d'un coup.
-
-LUCK_BOOST_MULTIPLIER = 10
-LUCK_BOOST_DURATION_SECONDS = 90  # 1 min 30
-MASS_SPAWN_COUNT = 10
-MASS_SPAWN_DELAY_SECONDS = 1.5  # petite pause entre chaque spawn pour ne pas saturer le salon
-
-
-class AdminPanelView(discord.ui.View):
-    def __init__(self, guild_id: int):
-        super().__init__(timeout=180)
-        self.guild_id = guild_id
-
-    @discord.ui.button(label="🍀 Luck x10 (1 min 30)", style=discord.ButtonStyle.success)
-    async def luck_boost(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not is_staff(interaction.user):
-            await interaction.response.send_message(
-                "❌ Tu n'as pas la permission d'utiliser ce panneau.", ephemeral=True
-            )
-            return
-
-        LUCK_BOOST[self.guild_id] = {
-            "multiplier": LUCK_BOOST_MULTIPLIER,
-            "expires_at": datetime.now(PARIS_TZ) + timedelta(seconds=LUCK_BOOST_DURATION_SECONDS),
-        }
-
-        await interaction.response.send_message(
-            f"🍀 Chance x{LUCK_BOOST_MULTIPLIER} activée pendant {LUCK_BOOST_DURATION_SECONDS // 60} min "
-            f"{LUCK_BOOST_DURATION_SECONDS % 60} s !",
-            ephemeral=True,
-        )
-
-        guild_conf = config.get(str(self.guild_id), {})
-        animal_conf = guild_conf.get("animal_config")
-        if animal_conf and animal_conf.get("channel_id"):
-            channel = interaction.guild.get_channel(animal_conf["channel_id"])
-            if channel:
-                try:
-                    await channel.send(
-                        "🍀✨ **ÉVÉNEMENT CHANCE x10 !** Pendant 1 min 30, les animaux rares ont bien plus "
-                        "de chances d'apparaître. Restez à l'affût 👀"
-                    )
-                except discord.HTTPException:
-                    pass
-
-    @discord.ui.button(label="✨ Spawn x10", style=discord.ButtonStyle.primary)
-    async def spawn_ten(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not is_staff(interaction.user):
-            await interaction.response.send_message(
-                "❌ Tu n'as pas la permission d'utiliser ce panneau.", ephemeral=True
-            )
-            return
-
-        guild_conf = config.get(str(self.guild_id), {})
-        animal_conf = guild_conf.get("animal_config")
-        if not animal_conf or not animal_conf.get("channel_id"):
-            await interaction.response.send_message(
-                "❌ Le système d'animaux n'est pas configuré. Utilise `/animal config` d'abord.", ephemeral=True
-            )
-            return
-
-        channel = interaction.guild.get_channel(animal_conf["channel_id"])
-        if channel is None:
-            await interaction.response.send_message("❌ Le salon configuré est introuvable.", ephemeral=True)
-            return
-
-        await interaction.response.send_message(
-            f"✨ {MASS_SPAWN_COUNT} animaux vont apparaître dans {channel.mention} !", ephemeral=True
-        )
-        for _ in range(MASS_SPAWN_COUNT):
-            try:
-                await spawn_animal(interaction.guild, channel)
-            except discord.HTTPException:
-                pass
-            await asyncio.sleep(MASS_SPAWN_DELAY_SECONDS)
-
-
-admin_group = app_commands.Group(name="admin", description="Commandes d'administration du bot")
-
-
-@admin_group.command(name="panel", description="[Staff] Ouvre le panneau d'administration (boost de chance, spawns multiples...)")
-async def admin_panel_cmd(interaction: discord.Interaction):
-    if not is_staff(interaction.user):
-        await interaction.response.send_message(
-            "❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
-        )
-        return
-
-    embed = discord.Embed(
-        title="🛠️ Panneau d'administration",
-        description=(
-            "**🍀 Luck x10 (1 min 30)** — multiplie par 10 les chances des raretés autres que "
-            "Membre pendant 1 min 30.\n"
-            "**✨ Spawn x10** — fait apparaître 10 animaux d'un coup dans le salon configuré."
-        ),
-        color=discord.Color.dark_gold(),
-    )
-    view = AdminPanelView(interaction.guild.id)
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-
-bot.tree.add_command(admin_group)
- 
- 
 # ================================================================
 #           MODE MAINTENANCE (/maintenance serveur)
 # ================================================================
@@ -4212,13 +3302,6 @@ UPDATE_LOGS = [
         ),
     },
     {
-        "titre": "🐾 Animaux à capturer",
-        "description": (
-            "Système optionnel : `/animal config` (staff) fait apparaître un animal sauvage par jour, "
-            "à une heure aléatoire. Premier arrivé, premier servi ! Voir sa collection avec `/animal collection`."
-        ),
-    },
-    {
         "titre": "🏰 Classement des guildes & rôle Chef de guilde",
         "description": (
             "`/guilde classement` affiche le classement des guildes les plus actives "
@@ -4263,16 +3346,6 @@ UPDATE_LOGS = [
             "Variables disponibles : `{membre}`, `{pseudo}`, `{serveur}`, `{nombre}` — au choix en "
             "encadré coloré ou en message texte simple.\n"
             "`/bienvenue test` permet d'en voir le rendu avant l'arrivée d'un vrai membre."
-        ),
-    },
-    {
-        "titre": "✅ Retrait d'avertissements",
-        "description": (
-            "Nouvelle commande **`+unwarn @membre`** (staff) pour retirer le dernier avertissement "
-            "d'un membre.\n"
-            "`+unwarn @membre 2` retire un avertissement précis (numéros visibles avec `+warn list`), "
-            "et `+unwarn @membre all` les efface tous.\n"
-            "Le membre est prévenu en message privé du retrait."
         ),
     },
 ]
@@ -4945,32 +4018,7 @@ async def before_check_elu_semaine():
     await bot.wait_until_ready()
  
  
-@bot.tree.command(name="clear", description="[Staff] Supprime un nombre de messages dans le salon")
-@app_commands.describe(nombre="Nombre de messages à supprimer (1 à 100)")
-async def clear(interaction: discord.Interaction, nombre: app_commands.Range[int, 1, 100]):
-    if not is_mod(interaction.user):
-        await interaction.response.send_message(
-            "❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
-        )
-        return
- 
-    await interaction.response.defer(ephemeral=True)
-    try:
-        supprimes = await interaction.channel.purge(limit=nombre)
-    except discord.Forbidden:
-        await interaction.followup.send(
-            "❌ Je n'ai pas la permission de supprimer des messages dans ce salon.", ephemeral=True
-        )
-        return
-    except discord.HTTPException:
-        await interaction.followup.send(
-            "❌ Erreur lors de la suppression des messages (les messages de plus de 14 jours ne peuvent pas être supprimés en masse).",
-            ephemeral=True,
-        )
-        return
- 
-    await interaction.followup.send(f"✅ {len(supprimes)} message(s) supprimé(s).", ephemeral=True)
- 
+
 @bot.tree.command(name="mentionjoin", description="[Staff] Définit le salon où ping+supprimer chaque nouveau membre")
 @app_commands.describe(salon="Salon où le nouveau membre sera ping puis le message supprimé")
 async def mentionjoin_cmd(interaction: discord.Interaction, salon: discord.TextChannel):
@@ -4988,220 +4036,11 @@ async def mentionjoin_cmd(interaction: discord.Interaction, salon: discord.TextC
         f"✅ Chaque nouveau membre sera désormais ping puis le message supprimé immédiatement dans {salon.mention}.",
         ephemeral=True,
     )
-
-    await interaction.response.send_message(membre.mention)
-    await interaction.delete_original_response()
  
 # ================================================================
-#                       MODÉRATION
+#                   UTILITAIRE : durées (10m, 2h, 1j, 2w)
 # ================================================================
- 
-def get_warns(guild_id: int, user_id: int) -> list:
-    return config.get(str(guild_id), {}).get("warns", {}).get(str(user_id), [])
- 
- 
-def add_warn(guild_id: int, user_id: int, moderator_id: int, raison: str) -> int:
-    guild_conf = config.setdefault(str(guild_id), {})
-    warns = guild_conf.setdefault("warns", {})
-    user_warns = warns.setdefault(str(user_id), [])
-    user_warns.append({
-        "reason": raison,
-        "moderator_id": str(moderator_id),
-        "date": datetime.utcnow().isoformat(),
-    })
-    save_config(config)
-    return len(user_warns)
- 
- 
-def remove_warn(guild_id: int, user_id: int, index: int = -1):
-    """Retire un avertissement. index = -1 pour le dernier, sinon l'index (0-based).
-    Retourne (warn_supprimé, nb_restants) ou (None, nb_restants) si introuvable."""
-    guild_conf = config.setdefault(str(guild_id), {})
-    warns = guild_conf.setdefault("warns", {})
-    user_warns = warns.get(str(user_id), [])
 
-    if not user_warns:
-        return None, 0
-    if index != -1 and not (0 <= index < len(user_warns)):
-        return None, len(user_warns)
-
-    supprime = user_warns.pop(index)
-    if not user_warns:
-        del warns[str(user_id)]
-    save_config(config)
-    return supprime, len(user_warns)
-
-
-def clear_warns(guild_id: int, user_id: int) -> int:
-    """Supprime tous les avertissements d'un membre. Retourne le nombre supprimé."""
-    guild_conf = config.setdefault(str(guild_id), {})
-    warns = guild_conf.setdefault("warns", {})
-    nb = len(warns.get(str(user_id), []))
-    if str(user_id) in warns:
-        del warns[str(user_id)]
-        save_config(config)
-    return nb
-
-
-@bot.command(name="warn")
-async def warn_command(ctx: commands.Context, cible: str = None, *, reste: str = None):
-    if not is_helper(ctx.author):
-        await ctx.send("❌ Cette commande est réservée au staff (Helper, Mod ou Gérant).")
-        return
- 
-    if cible is None:
-        await ctx.send(
-            "❌ Utilisation :\n"
-            "`+warn @membre <raison>` — Avertir un membre\n"
-            "`+warn list @membre` — Voir ses avertissements"
-        )
-        return
- 
-    # ---- +warn list @membre ----
-    if cible.lower() == "list":
-        if reste is None:
-            await ctx.send("❌ Utilise `+warn list @membre`.")
-            return
-        try:
-            membre = await commands.MemberConverter().convert(ctx, reste.strip())
-        except commands.MemberNotFound:
-            await ctx.send("❌ Membre introuvable.")
-            return
- 
-        warns = get_warns(ctx.guild.id, membre.id)
-        if not warns:
-            embed = discord.Embed(
-                title=f"📋 Avertissements de {membre.display_name}",
-                description="Aucun avertissement.",
-                color=discord.Color.green(),
-            )
-        else:
-            lignes = []
-            for i, w in enumerate(warns, start=1):
-                date = w["date"][:10]
-                mod = ctx.guild.get_member(int(w["moderator_id"]))
-                mod_nom = mod.mention if mod else f"<@{w['moderator_id']}>"
-                lignes.append(f"**#{i}** — {w['reason']} *(par {mod_nom}, le {date})*")
-            embed = discord.Embed(
-                title=f"📋 Avertissements de {membre.display_name}",
-                description="\n".join(lignes),
-                color=discord.Color.orange(),
-            )
-        embed.set_footer(text=f"{len(warns)} avertissement(s)")
-        embed.set_thumbnail(url=membre.display_avatar.url)
-        await ctx.send(embed=embed)
-        return
- 
-    # ---- +warn @membre <raison> ----
-    try:
-        membre = await commands.MemberConverter().convert(ctx, cible)
-    except commands.MemberNotFound:
-        await ctx.send("❌ Membre introuvable.")
-        return
- 
-    raison = reste or "Aucune raison précisée."
-    total = add_warn(ctx.guild.id, membre.id, ctx.author.id, raison)
- 
-    embed = discord.Embed(title="⚠️ Avertissement", color=discord.Color.orange())
-    embed.add_field(name="Membre", value=membre.mention, inline=True)
-    embed.add_field(name="Modérateur", value=ctx.author.mention, inline=True)
-    embed.add_field(name="Raison", value=raison, inline=False)
-    embed.set_footer(text=f"{membre.display_name} a désormais {total} avertissement(s).")
-    await ctx.send(embed=embed)
- 
-    try:
-        await membre.send(
-            f"⚠️ Tu as reçu un avertissement sur **{ctx.guild.name}**.\nRaison : {raison}"
-        )
-    except discord.HTTPException:
-        pass
- 
- 
-@bot.command(name="unwarn")
-async def unwarn_command(ctx: commands.Context, cible: str = None, numero: str = None):
-    """+unwarn @membre          -> retire le dernier avertissement
-       +unwarn @membre 2        -> retire l'avertissement n°2
-       +unwarn @membre all      -> retire tous les avertissements"""
-    if not is_gerant(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Gérants (les Helpers et Mods ne peuvent pas retirer de warns).")
-        return
-
-    if cible is None:
-        await ctx.send(
-            "❌ Utilisation :\n"
-            "`+unwarn @membre` — Retire le dernier avertissement\n"
-            "`+unwarn @membre 2` — Retire l'avertissement n°2 (numéros visibles avec `+warn list @membre`)\n"
-            "`+unwarn @membre all` — Retire tous les avertissements"
-        )
-        return
-
-    try:
-        membre = await commands.MemberConverter().convert(ctx, cible)
-    except commands.MemberNotFound:
-        await ctx.send("❌ Membre introuvable.")
-        return
-
-    warns = get_warns(ctx.guild.id, membre.id)
-    if not warns:
-        await ctx.send(f"❌ {membre.mention} n'a aucun avertissement.")
-        return
-
-    # ---- +unwarn @membre all ----
-    if numero and numero.lower() in {"all", "tout", "tous"}:
-        nb = clear_warns(ctx.guild.id, membre.id)
-        embed = discord.Embed(
-            title="🧹 Avertissements effacés",
-            description=f"Les **{nb}** avertissement(s) de {membre.mention} ont été supprimés.",
-            color=discord.Color.green(),
-        )
-        embed.set_footer(text=f"Par {ctx.author}")
-        await ctx.send(embed=embed)
-
-        try:
-            await membre.send(
-                f"✅ Tous tes avertissements sur **{ctx.guild.name}** ont été retirés par le staff."
-            )
-        except discord.HTTPException:
-            pass
-        return
-
-    # ---- +unwarn @membre [numéro] ----
-    index = -1
-    if numero is not None:
-        try:
-            saisi = int(numero)
-        except ValueError:
-            await ctx.send("❌ Numéro invalide. Utilise un nombre, ou `all` pour tout retirer.")
-            return
-        if not (1 <= saisi <= len(warns)):
-            await ctx.send(
-                f"❌ Numéro invalide : {membre.display_name} a **{len(warns)}** avertissement(s). "
-                "Vérifie les numéros avec `+warn list @membre`."
-            )
-            return
-        index = saisi - 1
-
-    supprime, restants = remove_warn(ctx.guild.id, membre.id, index)
-    if supprime is None:
-        await ctx.send("❌ Impossible de retirer cet avertissement.")
-        return
-
-    embed = discord.Embed(title="✅ Avertissement retiré", color=discord.Color.green())
-    embed.add_field(name="Membre", value=membre.mention, inline=True)
-    embed.add_field(name="Retiré par", value=ctx.author.mention, inline=True)
-    embed.add_field(name="Raison de l'avertissement", value=supprime.get("reason", "—"), inline=False)
-    embed.set_footer(text=f"{membre.display_name} a désormais {restants} avertissement(s).")
-    await ctx.send(embed=embed)
-
-    try:
-        await membre.send(
-            f"✅ Un de tes avertissements sur **{ctx.guild.name}** a été retiré.\n"
-            f"Il t'en reste **{restants}**."
-        )
-    except discord.HTTPException:
-        pass
- 
- 
 def parse_duration(duree_str: str):
     """Convertit '10m', '2h', '1j'/'1d', '30s', '2w' (semaine) en secondes. Retourne None si invalide."""
     unites = {"s": 1, "m": 60, "h": 3600, "j": 86400, "d": 86400, "w": 7 * 86400}
@@ -5217,359 +4056,8 @@ def parse_duration(duree_str: str):
     if valeur <= 0:
         return None
     return valeur * unites[unite]
- 
- 
-@bot.command(name="mute")
-async def mute_command(ctx: commands.Context, membre: discord.Member = None, duree: str = None, *, raison: str = None):
-    if not is_mod(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Mods et Gérants.")
-        return
- 
-    if membre is None or duree is None:
-        await ctx.send("❌ Utilisation : `+mute @membre <durée ex: 10m/2h/1j> [raison]`")
-        return
- 
-    secondes = parse_duration(duree)
-    if secondes is None:
-        await ctx.send("❌ Durée invalide. Utilise un format comme `10m`, `2h`, `1j`.")
-        return
- 
-    secondes = min(secondes, 28 * 86400)  # Discord limite le timeout à 28 jours max
-    raison = raison or "Aucune raison précisée."
-    until = discord.utils.utcnow() + timedelta(seconds=secondes)
- 
-    try:
-        await membre.timeout(until, reason=f"{raison} (par {ctx.author})")
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de mute ce membre (vérifie la position de mon rôle).")
-        return
-    except discord.HTTPException:
-        await ctx.send("❌ Erreur lors du mute.")
-        return
- 
-    embed = discord.Embed(title="🔇 Membre mute", color=discord.Color.dark_grey())
-    embed.add_field(name="Membre", value=membre.mention, inline=True)
-    embed.add_field(name="Durée", value=duree, inline=True)
-    embed.add_field(name="Raison", value=raison, inline=False)
-    embed.set_footer(text=f"Par {ctx.author}")
-    await ctx.send(embed=embed)
- 
-    try:
-        await membre.send(
-            f"🔇 Tu as été rendu muet sur **{ctx.guild.name}** pour {duree}.\nRaison : {raison}"
-        )
-    except discord.HTTPException:
-        pass
- 
- 
-@bot.command(name="unmute")
-async def unmute_command(ctx: commands.Context, membre: discord.Member = None):
-    if not is_mod(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Mods et Gérants.")
-        return
- 
-    if membre is None:
-        await ctx.send("❌ Utilisation : `+unmute @membre`")
-        return
- 
-    try:
-        await membre.timeout(None, reason=f"Unmute par {ctx.author}")
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de unmute ce membre.")
-        return
-    except discord.HTTPException:
-        await ctx.send("❌ Erreur lors du unmute.")
-        return
- 
-    await ctx.send(f"🔊 {membre.mention} n'est plus mute.")
- 
- 
-# ================================================================
-#                       SYSTÈME DE BAN
-# ================================================================
-#
-# +ban @membre [raison]  : bannit un membre du serveur (réservé aux Gérants).
-# +unban <user_id> [raison] : débannit un utilisateur par son ID (un membre
-#                              banni n'est plus dans le serveur, donc pas de
-#                              mention possible, il faut son ID numérique).
-
-@bot.command(name="ban")
-async def ban_command(ctx: commands.Context, membre: discord.Member = None, *, raison: str = None):
-    if not is_gerant(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Gérants.")
-        return
-
-    if membre is None:
-        await ctx.send("❌ Utilisation : `+ban @membre [raison]`")
-        return
-
-    if membre.id == ctx.author.id:
-        await ctx.send("❌ Tu ne peux pas te bannir toi-même.")
-        return
-    if membre.top_role >= ctx.guild.me.top_role:
-        await ctx.send("❌ Je ne peux pas bannir ce membre (son rôle est égal ou supérieur au mien).")
-        return
-
-    raison = raison or "Aucune raison précisée."
-
-    try:
-        await membre.send(f"🔨 Tu as été banni de **{ctx.guild.name}**.\nRaison : {raison}")
-    except discord.HTTPException:
-        pass  # DMs fermés : on bannit quand même, sans bloquer sur l'envoi du message.
-
-    try:
-        await ctx.guild.ban(membre, reason=f"{raison} (par {ctx.author})", delete_message_seconds=0)
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de bannir ce membre.")
-        return
-    except discord.HTTPException:
-        await ctx.send("❌ Erreur lors du bannissement.")
-        return
-
-    embed = discord.Embed(title="🔨 Membre banni", color=discord.Color.dark_red())
-    embed.add_field(name="Membre", value=f"{membre.mention} ({membre.id})", inline=True)
-    embed.add_field(name="Modérateur", value=ctx.author.mention, inline=True)
-    embed.add_field(name="Raison", value=raison, inline=False)
-    embed.set_thumbnail(url=membre.display_avatar.url)
-    await ctx.send(embed=embed)
 
 
-@bot.command(name="unban")
-async def unban_command(ctx: commands.Context, user_id: str = None, *, raison: str = None):
-    if not is_gerant(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Gérants.")
-        return
-
-    if user_id is None:
-        await ctx.send("❌ Utilisation : `+unban <ID utilisateur> [raison]` (visible dans la liste des bannis Discord).")
-        return
-
-    try:
-        uid = int(user_id.strip("<@!>"))
-    except ValueError:
-        await ctx.send("❌ ID invalide. Utilise l'ID numérique du compte (pas de mention possible pour un membre banni).")
-        return
-
-    try:
-        ban_entry = await ctx.guild.fetch_ban(discord.Object(id=uid))
-    except discord.NotFound:
-        await ctx.send("❌ Cet utilisateur n'est pas banni sur ce serveur.")
-        return
-    except discord.HTTPException:
-        await ctx.send("❌ Erreur lors de la vérification du bannissement.")
-        return
-
-    raison = raison or "Aucune raison précisée."
-
-    try:
-        await ctx.guild.unban(ban_entry.user, reason=f"{raison} (par {ctx.author})")
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de débannir ce membre.")
-        return
-    except discord.HTTPException:
-        await ctx.send("❌ Erreur lors du débannissement.")
-        return
-
-    embed = discord.Embed(title="✅ Membre débanni", color=discord.Color.green())
-    embed.add_field(name="Utilisateur", value=f"{ban_entry.user} ({ban_entry.user.id})", inline=True)
-    embed.add_field(name="Modérateur", value=ctx.author.mention, inline=True)
-    embed.add_field(name="Raison", value=raison, inline=False)
-    await ctx.send(embed=embed)
- 
- 
-# ---------------- +tempban (réservé aux Modérateurs et Gérants) ----------------
-#
-# Contrairement à +ban (permanent, Gérants uniquement), +tempban est accessible
-# dès le niveau Modérateur : le membre est banni puis automatiquement débanni
-# à l'expiration de la durée (vérifiée toutes les minutes en arrière-plan).
-
-def get_tempbans(guild_id: int) -> dict:
-    guild_conf = config.setdefault(str(guild_id), {})
-    return guild_conf.setdefault("tempbans", {})
-
-
-def save_tempbans(guild_id: int, tempbans: dict) -> None:
-    guild_conf = config.setdefault(str(guild_id), {})
-    guild_conf["tempbans"] = tempbans
-    save_config(config)
-
-
-@bot.command(name="tempban")
-async def tempban_command(ctx: commands.Context, membre: discord.Member = None, duree: str = None, *, raison: str = None):
-    if not is_mod(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Modérateurs et Gérants.")
-        return
-
-    if membre is None or duree is None:
-        await ctx.send("❌ Utilisation : `+tempban @membre <durée ex: 10m/2h/1j/2w> [raison]`")
-        return
-
-    if membre.id == ctx.author.id:
-        await ctx.send("❌ Tu ne peux pas te bannir toi-même.")
-        return
-    if membre.top_role >= ctx.guild.me.top_role:
-        await ctx.send("❌ Je ne peux pas bannir ce membre (son rôle est égal ou supérieur au mien).")
-        return
-
-    secondes = parse_duration(duree)
-    if secondes is None:
-        await ctx.send("❌ Durée invalide. Utilise un format comme `10m`, `2h`, `1j`, `2w` (semaine).")
-        return
-
-    raison = raison or "Aucune raison précisée."
-    fin = datetime.now(PARIS_TZ) + timedelta(seconds=secondes)
-
-    try:
-        await membre.send(
-            f"🔨 Tu as été banni temporairement de **{ctx.guild.name}** pour {duree}.\nRaison : {raison}"
-        )
-    except discord.HTTPException:
-        pass
-
-    try:
-        await ctx.guild.ban(membre, reason=f"{raison} (tempban par {ctx.author}, {duree})", delete_message_seconds=0)
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de bannir ce membre.")
-        return
-    except discord.HTTPException:
-        await ctx.send("❌ Erreur lors du bannissement.")
-        return
-
-    tempbans = get_tempbans(ctx.guild.id)
-    tempbans[str(membre.id)] = {
-        "unban_at": fin.isoformat(),
-        "moderator_id": str(ctx.author.id),
-        "raison": raison,
-    }
-    save_tempbans(ctx.guild.id, tempbans)
-
-    embed = discord.Embed(title="⏱️ Membre banni temporairement", color=discord.Color.dark_orange())
-    embed.add_field(name="Membre", value=f"{membre.mention} ({membre.id})", inline=True)
-    embed.add_field(name="Modérateur", value=ctx.author.mention, inline=True)
-    embed.add_field(name="Durée", value=duree, inline=True)
-    embed.add_field(name="Raison", value=raison, inline=False)
-    embed.set_footer(text=f"Débanni automatiquement le {fin.strftime('%d/%m/%Y à %H:%M')} (heure de Paris)")
-    embed.set_thumbnail(url=membre.display_avatar.url)
-    await ctx.send(embed=embed)
-
-
-@tasks.loop(minutes=1)
-async def check_tempbans_loop():
-    now = datetime.now(PARIS_TZ)
-    for guild in bot.guilds:
-        tempbans = config.get(str(guild.id), {}).get("tempbans", {})
-        for user_id_str, data in list(tempbans.items()):
-            fin = _parse_dt(data.get("unban_at"))
-            if not fin or now < fin:
-                continue
-            try:
-                await guild.unban(discord.Object(id=int(user_id_str)), reason="Fin du bannissement temporaire (+tempban)")
-            except (discord.NotFound, discord.HTTPException):
-                pass
-            del tempbans[user_id_str]
-            save_tempbans(guild.id, tempbans)
-
-
-@check_tempbans_loop.before_loop
-async def before_check_tempbans_loop():
-    await bot.wait_until_ready()
-
- # ---------------- +tempmute (mute VOCAL temporaire, réservé Mods et Gérants) ----------------
-#
-# Coupe le micro du membre dans le salon vocal (mute serveur, PAS un timeout texte)
-# pendant la durée indiquée, puis le remet automatiquement en fin de durée.
-# Le membre doit être connecté à un salon vocal au moment de la commande.
-
-def get_tempvocmutes(guild_id: int) -> dict:
-    guild_conf = config.setdefault(str(guild_id), {})
-    return guild_conf.setdefault("tempvocmutes", {})
-
-
-def save_tempvocmutes(guild_id: int, tempvocmutes: dict) -> None:
-    guild_conf = config.setdefault(str(guild_id), {})
-    guild_conf["tempvocmutes"] = tempvocmutes
-    save_config(config)
-
-
-@bot.command(name="tempmute")
-async def tempmute_command(ctx: commands.Context, membre: discord.Member = None, duree: str = None, *, raison: str = None):
-    if not is_mod(ctx.author):
-        await ctx.send("❌ Cette commande est réservée aux Modérateurs et Gérants.")
-        return
-
-    if membre is None or duree is None:
-        await ctx.send("❌ Utilisation : `+tempmute @membre <durée ex: 10m/2h/1j> [raison]`")
-        return
-
-    if membre.voice is None or membre.voice.channel is None:
-        await ctx.send(f"❌ {membre.mention} n'est pas connecté à un salon vocal.")
-        return
-
-    secondes = parse_duration(duree)
-    if secondes is None:
-        await ctx.send("❌ Durée invalide. Utilise un format comme `10m`, `2h`, `1j`.")
-        return
-
-    raison = raison or "Aucune raison précisée."
-    fin = datetime.now(PARIS_TZ) + timedelta(seconds=secondes)
-
-    try:
-        await membre.edit(mute=True, reason=f"{raison} (tempmute vocal par {ctx.author}, {duree})")
-    except discord.Forbidden:
-        await ctx.send("❌ Je n'ai pas la permission de mute ce membre en vocal.")
-        return
-    except discord.HTTPException:
-        await ctx.send("❌ Erreur lors du mute vocal.")
-        return
-
-    tempvocmutes = get_tempvocmutes(ctx.guild.id)
-    tempvocmutes[str(membre.id)] = {
-        "unmute_at": fin.isoformat(),
-        "moderator_id": str(ctx.author.id),
-        "raison": raison,
-    }
-    save_tempvocmutes(ctx.guild.id, tempvocmutes)
-
-    embed = discord.Embed(title="🔇 Membre mute en vocal", color=discord.Color.dark_grey())
-    embed.add_field(name="Membre", value=membre.mention, inline=True)
-    embed.add_field(name="Durée", value=duree, inline=True)
-    embed.add_field(name="Raison", value=raison, inline=False)
-    embed.set_footer(text=f"Par {ctx.author} • Remise du micro automatique le {fin.strftime('%d/%m/%Y à %H:%M')} (heure de Paris)")
-    await ctx.send(embed=embed)
-
-    try:
-        await membre.send(
-            f"🔇 Ton micro a été coupé sur **{ctx.guild.name}** pour {duree}.\nRaison : {raison}"
-        )
-    except discord.HTTPException:
-        pass
-
-
-@tasks.loop(minutes=1)
-async def check_tempvocmutes_loop():
-    now = datetime.now(PARIS_TZ)
-    for guild in bot.guilds:
-        tempvocmutes = config.get(str(guild.id), {}).get("tempvocmutes", {})
-        for user_id_str, data in list(tempvocmutes.items()):
-            fin = _parse_dt(data.get("unmute_at"))
-            if not fin or now < fin:
-                continue
-
-            member = guild.get_member(int(user_id_str))
-            if member is not None:
-                try:
-                    await member.edit(mute=False, reason="Fin du mute vocal temporaire (+tempmute)")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-
-            del tempvocmutes[user_id_str]
-            save_tempvocmutes(guild.id, tempvocmutes)
-
-
-@check_tempvocmutes_loop.before_loop
-async def before_check_tempvocmutes_loop():
-    await bot.wait_until_ready()
- 
 # ================================================================
 #              SYSTÈME DE SIGNALEMENT (/report)
 # ================================================================
@@ -6434,9 +4922,6 @@ async def on_ready():
         print("Commandes globales nettoyées (évite les doublons dans /).")
     except Exception as e:
         print(f"Erreur de synchronisation : {e}")
-
-    for guild in bot.guilds:
-        await update_invites_cache(guild)
  
     for guild in bot.guilds:
         await update_invites_cache(guild)
@@ -6453,17 +4938,8 @@ async def on_ready():
     if not check_tiktok_loop.is_running():
         check_tiktok_loop.start()
 
-    if not check_animal_spawns.is_running():
-        check_animal_spawns.start()
-
     if not check_quetes_loop.is_running():
         check_quetes_loop.start()
-
-    if not check_tempbans_loop.is_running():
-        check_tempbans_loop.start()
-
-    if not check_tempvocmutes_loop.is_running():
-        check_tempvocmutes_loop.start()
 
     if not check_giveaways.is_running():
         check_giveaways.start()
