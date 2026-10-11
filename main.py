@@ -35,7 +35,7 @@ ELU_GIF_URL = "https://media1.tenor.com/m/9BEFbzse_iUAAAAC/hunter-x-hunter-vacuu
 PARIS_TZ = ZoneInfo("Europe/Paris")
 
 # ---- Tickets ----
-TICKETS_CATEGORY_NAME = "『🕵️』Ticket Ouvert"     # Catégorie par défaut où sont créés les salons de tickets
+TICKETS_CATEGORY_NAME = "『👔』𝐓𝐢𝐜𝐤𝐞𝐭 𝐎𝐮𝐯𝐞𝐫𝐭"     # Catégorie par défaut où sont créés les salons de tickets
 
 # ---- TikTok ----
 TIKTOK_USERNAME = "7vkp2"                # Compte TikTok suivi (https://www.tiktok.com/@7vkp2)
@@ -2307,16 +2307,59 @@ class TicketCloseView(discord.ui.View):
             pass
  
  
+# ---- Valeurs par défaut du panneau de tickets (pré-remplies dans /ticketsetup) ----
+TICKET_DEFAULT_TITRE = "🤝〃Centre d'assistances"
+
+TICKET_DEFAULT_TEXTE_HAUT = (
+    "Notre équipe est disponible 24h/24 pour répondre à vos besoins !\n"
+    "\n"
+    "🔨〃SANCTIONS\n"
+    "Vous avez été sanctionnée et vous pensez que c'est une erreur ? Ouvrez un ticket pour "
+    "contester la décision et expliquer votre situation.\n"
+    "\n"
+    "📁〃RECRUTEMENTS\n"
+    "Vous voulez rejoindrais le staff afin de bien modéré le serveur, Alors ouvre un ticket !\n"
+    "\n"
+    "👑〃OWNERS\n"
+    "Pour les partenariats ou si vous rencontrez un problème important nécessitant "
+    "l'attention d'un owner.\n"
+    "\n"
+    "📊〃Vote2Profil\n"
+    "Pour les demandes liées à Vote2Profil."
+)
+
+TICKET_DEFAULT_BOUTONS = (
+    "VOTE2PROFIL | 📊 | red\n"
+    "OWNERS | 👑 | red\n"
+    "RECRUTEMENTS | 📁 | red\n"
+    "SANCTIONS | 🔨 | red"
+)
+
+# Un emoji de bouton est soit un vrai emoji Unicode (🔨), soit un emoji
+# personnalisé du serveur au format <:nom:id> ou <a:nom:id> (animé).
+# Les raccourcis texte du type :hammer: ne sont PAS acceptés par Discord.
+CUSTOM_EMOJI_RE = re.compile(r"^<a?:\w{2,32}:\d{15,25}>$")
+SHORTCODE_RE = re.compile(r"^:[\w+-]+:$")
+
+
+def emoji_bouton_valide(emoji: str) -> bool:
+    if CUSTOM_EMOJI_RE.match(emoji):
+        return True
+    return not SHORTCODE_RE.match(emoji) and not emoji.isascii()
+
+
 class TicketSetupModal(discord.ui.Modal, title="Configuration du panneau de tickets"):
     titre = discord.ui.TextInput(
         label="Titre de l'embed",
         placeholder="Ex : 📩 Centre d'assistance",
+        default=TICKET_DEFAULT_TITRE,
         max_length=256,
     )
     texte_haut = discord.ui.TextInput(
         label="Texte au-dessus des boutons",
         style=discord.TextStyle.paragraph,
         placeholder="Explique le fonctionnement du système de tickets...",
+        default=TICKET_DEFAULT_TEXTE_HAUT,
         max_length=1000,
     )
     texte_bas = discord.ui.TextInput(
@@ -2329,12 +2372,14 @@ class TicketSetupModal(discord.ui.Modal, title="Configuration du panneau de tick
     boutons = discord.ui.TextInput(
         label="Boutons : Label | emoji | couleur",
         style=discord.TextStyle.paragraph,
-        placeholder="Porter Plainte | 📩 | blurple\nAutre Contact | 📩 | green",
+        placeholder="Porter Plainte | 📩 | blurple\nAutre Contact | <:nom:123456789012345678> | green",
+        default=TICKET_DEFAULT_BOUTONS,
         max_length=1000,
     )
     categorie_nom = discord.ui.TextInput(
         label="Nom de la catégorie tickets (optionnel)",
         placeholder=f"Par défaut : {TICKETS_CATEGORY_NAME}",
+        default=TICKETS_CATEGORY_NAME,
         required=False,
         max_length=100,
     )
@@ -2350,6 +2395,15 @@ class TicketSetupModal(discord.ui.Modal, title="Configuration du panneau de tick
             if not label:
                 continue
             emoji = parts[1] if len(parts) >= 2 and parts[1] else None
+            if emoji and not emoji_bouton_valide(emoji):
+                await interaction.response.send_message(
+                    f"❌ Emoji invalide pour le bouton **{label}** : `{emoji}`\n"
+                    "Utilise un vrai emoji (🔨) ou un emoji personnalisé du serveur au format "
+                    "`<:nom:id>` (tape `\\:nom:` dans Discord pour l'obtenir). "
+                    "Les raccourcis comme `:hammer:` ne marchent pas sur les boutons.",
+                    ephemeral=True,
+                )
+                return
             style_key = parts[2].lower() if len(parts) >= 3 and parts[2] else "primary"
             style_enum = TICKET_STYLE_MAP.get(style_key, discord.ButtonStyle.primary)
             buttons_data.append({"label": label[:80], "emoji": emoji, "style": style_enum.name})
@@ -3343,8 +3397,8 @@ UPDATE_LOGS = [
         "description": (
             "`/bienvenue config` (staff) permet de choisir le salon et de personnaliser entièrement "
             "le message envoyé à chaque nouvelle arrivée.\n"
-            "Variables disponibles : `{membre}`, `{pseudo}`, `{serveur}`, `{nombre}` — au choix en "
-            "encadré coloré ou en message texte simple.\n"
+            "Variables disponibles : `{membre}`, `{pseudo}`, `{serveur}`, `{nombre}`. "
+            "Le message est envoyé en simple message texte (pas d'encadré).\n"
             "`/bienvenue test` permet d'en voir le rendu avant l'arrivée d'un vrai membre."
         ),
     },
@@ -3414,8 +3468,8 @@ bot.tree.add_command(set_group)
 #   {serveur} -> nom du serveur
 #   {nombre}  -> nombre total de membres après son arrivée
 #
-# Deux styles d'affichage : "embed" (encadré coloré, par défaut) ou "texte"
-# (message simple, qui permet de vraiment ping le nouveau membre).
+# Le message est envoyé en simple message texte (pas d'embed), ce qui
+# permet de vraiment ping le nouveau membre.
 
 BIENVENUE_DEFAULT_MESSAGE = "👋 Bienvenue {membre} sur **{serveur}** ! Tu es notre {nombre}ᵉ membre 🎉"
 
@@ -3442,19 +3496,7 @@ async def envoyer_message_bienvenue(member: discord.Member) -> None:
     texte = format_bienvenue(conf.get("message") or BIENVENUE_DEFAULT_MESSAGE, member)
 
     try:
-        if conf.get("style", "embed") == "texte":
-            await channel.send(texte)
-        else:
-            embed = discord.Embed(
-                title=conf.get("titre") or f"👋 Bienvenue sur {member.guild.name} !",
-                description=texte,
-                color=discord.Color.blurple(),
-                timestamp=datetime.now(PARIS_TZ),
-            )
-            embed.set_thumbnail(url=member.display_avatar.url)
-            embed.set_footer(text=f"{member.guild.member_count} membres au total")
-            # Mention hors embed : un embed seul ne notifie jamais le membre.
-            await channel.send(content=member.mention, embed=embed)
+        await channel.send(texte)
     except discord.HTTPException:
         pass
 
@@ -3466,19 +3508,11 @@ bienvenue_group = app_commands.Group(name="bienvenue", description="Message de b
 @app_commands.describe(
     salon="Salon où sera envoyé le message de bienvenue",
     message="Texte du message. Variables : {membre} {pseudo} {serveur} {nombre}",
-    style="Affichage : encadré coloré (embed) ou message texte simple",
-    titre="Titre de l'encadré (uniquement en style embed)",
 )
-@app_commands.choices(style=[
-    app_commands.Choice(name="Encadré coloré (embed)", value="embed"),
-    app_commands.Choice(name="Message texte simple", value="texte"),
-])
 async def bienvenue_config_cmd(
     interaction: discord.Interaction,
     salon: discord.TextChannel,
     message: str = None,
-    style: app_commands.Choice[str] = None,
-    titre: str = None,
 ):
     if not is_staff(interaction.user):
         await interaction.response.send_message(
@@ -3492,10 +3526,6 @@ async def bienvenue_config_cmd(
     conf["actif"] = True
     if message:
         conf["message"] = message
-    if style:
-        conf["style"] = style.value
-    if titre:
-        conf["titre"] = titre
     save_config(config)
 
     apercu = format_bienvenue(conf.get("message") or BIENVENUE_DEFAULT_MESSAGE, interaction.user)
