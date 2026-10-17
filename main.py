@@ -124,8 +124,7 @@ NORMAL_COMMANDS = [
 STAFF_COMMANDS = [
     ("+absences", "Ouvre un formulaire pour déclarer une absence."),
     ("+role-react setup", "Crée un message à réactions qui donne des rôles."),
-    ("/ticketsetup", "Crée un panneau de tickets personnalisable (staff)."),
-    ("/ticketmenu", "Crée un panneau de tickets avec menu déroulant (staff)."),
+    ("/ticketsetup", "Crée le panneau de tickets avec menu déroulant (staff)."),
     ("+hide [#salon]", "Cache le salon à tout le monde sauf au staff."),
     ("+unhide [#salon]", "Rend le salon de nouveau visible."),
     ("/soutiens", "Configure et affiche le panneau des soutiens du serveur (staff)."),
@@ -2099,180 +2098,6 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
             pass
  
  
-# ================================================================
-#                    /ticketsetup — SYSTÈME DE TICKETS
-# ================================================================
-#
-# +ticketsetup ouvre une fenêtre (modal) qui permet de tout personnaliser
-# en une seule fois : titre de l'embed, texte au-dessus, texte en dessous,
-# et la liste des boutons (label, emoji, couleur), exactement comme dans
-# le screenshot fourni (plusieurs boutons de couleurs différentes qui
-# ouvrent chacun un salon de ticket privé).
-#
-# Format d'une ligne de bouton dans le modal :
-#   Label | emoji (optionnel) | couleur (optionnel)
-# Couleurs acceptées : blurple/primary/bleu, green/vert/success,
-#                      grey/gray/gris/secondary, red/rouge/danger
-#
-# Exemple :
-#   Porter Plainte | 📩 | blurple
-#   Contacter le Corps des Officiers | 📩 | green
-#   Contacter les Brigades Spéciales | 📩 | grey
- 
-TICKET_STYLE_MAP = {
-    "blurple": discord.ButtonStyle.primary,
-    "primary": discord.ButtonStyle.primary,
-    "bleu": discord.ButtonStyle.primary,
-    "blue": discord.ButtonStyle.primary,
-    "green": discord.ButtonStyle.success,
-    "vert": discord.ButtonStyle.success,
-    "success": discord.ButtonStyle.success,
-    "grey": discord.ButtonStyle.secondary,
-    "gray": discord.ButtonStyle.secondary,
-    "gris": discord.ButtonStyle.secondary,
-    "secondary": discord.ButtonStyle.secondary,
-    "red": discord.ButtonStyle.danger,
-    "rouge": discord.ButtonStyle.danger,
-    "danger": discord.ButtonStyle.danger,
-}
- 
- 
-def get_ticket_panels(guild_id: int) -> dict:
-    return config.get(str(guild_id), {}).get("ticket_panels", {})
- 
- 
-def save_ticket_panel(guild_id: int, panel_id: str, buttons_data: list, category_name: str, ping_role_ids: list | None = None) -> None:
-    guild_conf = config.setdefault(str(guild_id), {})
-    ticket_panels = guild_conf.setdefault("ticket_panels", {})
-    ticket_panels[panel_id] = {
-        "buttons": buttons_data,
-        "category_name": category_name,
-        "ping_role_ids": ping_role_ids or [],
-    }
-    save_config(config)
- 
- 
-class TicketButton(discord.ui.Button):
-    """Bouton dynamique de panneau de tickets. Le custom_id encode panel_id et index
-    pour retrouver la configuration du bouton, même après un redémarrage du bot."""
- 
-    async def callback(self, interaction: discord.Interaction):
-        await handle_ticket_open(interaction, self.custom_id)
- 
- 
-def build_ticket_panel_view(panel_id: str, buttons_data: list) -> discord.ui.View:
-    view = discord.ui.View(timeout=None)
-    for idx, data in enumerate(buttons_data):
-        style = getattr(discord.ButtonStyle, data.get("style", "primary"), discord.ButtonStyle.primary)
-        emoji = data.get("emoji") or None
-        view.add_item(
-            TicketButton(
-                label=data["label"],
-                emoji=emoji,
-                style=style,
-                custom_id=f"ticket_open:{panel_id}:{idx}",
-            )
-        )
-    return view
- 
- 
-async def handle_ticket_open(interaction: discord.Interaction, custom_id: str) -> None:
-    try:
-        _, panel_id, idx_str = custom_id.split(":", 2)
-        idx = int(idx_str)
-    except ValueError:
-        return
- 
-    guild = interaction.guild
-    if guild is None:
-        return
- 
-    guild_conf = config.setdefault(str(guild.id), {})
-    panel_conf = guild_conf.get("ticket_panels", {}).get(panel_id)
-    if not panel_conf or idx >= len(panel_conf["buttons"]):
-        await interaction.response.send_message("❌ Ce panneau de tickets n'est plus valide.", ephemeral=True)
-        return
- 
-    bouton_conf = panel_conf["buttons"][idx]
-    label = bouton_conf["label"]
- 
-    tickets_open = guild_conf.setdefault("tickets_open", {})
-    open_key = f"{interaction.user.id}:{panel_id}:{idx}"
-    existing_channel_id = tickets_open.get(open_key)
-    if existing_channel_id:
-        existing_channel = guild.get_channel(existing_channel_id)
-        if existing_channel:
-            await interaction.response.send_message(
-                f"⚠️ Tu as déjà un ticket ouvert pour **{label}** : {existing_channel.mention}", ephemeral=True
-            )
-            return
-        del tickets_open[open_key]
- 
-    await interaction.response.defer(ephemeral=True)
- 
-    category_name = panel_conf.get("category_name") or TICKETS_CATEGORY_NAME
-    category = discord.utils.get(guild.categories, name=category_name)
-    if category is None:
-        try:
-            category = await guild.create_category(category_name)
-        except discord.Forbidden:
-            await interaction.followup.send("❌ Je n'ai pas la permission de créer la catégorie de tickets.", ephemeral=True)
-            return
- 
-    staff_role = discord.utils.get(guild.roles, name=STAFF_ROLE_NAME)
-    ping_role_ids = panel_conf.get("ping_role_ids") or []
-    ping_roles = [r for r in (guild.get_role(rid) for rid in ping_role_ids) if r is not None]
-
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True, read_message_history=True),
-    }
-    if staff_role:
-        overwrites[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
-    for role in ping_roles:
-        overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
- 
-    slug = "".join(c if c.isalnum() else "-" for c in label.lower()).strip("-")[:40] or "ticket"
-    channel_name = f"ticket-{slug}-{interaction.user.name}".lower()[:90]
- 
-    try:
-        ticket_channel = await guild.create_text_channel(
-            channel_name,
-            category=category,
-            overwrites=overwrites,
-            topic=f"ticket_owner:{interaction.user.id}",
-            reason=f"Ticket ouvert par {interaction.user} ({label})",
-        )
-    except discord.Forbidden:
-        await interaction.followup.send("❌ Je n'ai pas la permission de créer un salon de ticket.", ephemeral=True)
-        return
-    except discord.HTTPException:
-        await interaction.followup.send("❌ Erreur lors de la création du salon de ticket.", ephemeral=True)
-        return
- 
-    tickets_open[open_key] = ticket_channel.id
-    save_config(config)
- 
-    ticket_embed = discord.Embed(
-        title=f"🎫 {label}",
-        description=(
-            f"Bonjour {interaction.user.mention}, merci d'avoir ouvert un ticket.\n\n"
-            "Explique ta demande en détail ci-dessous, un membre du staff te répondra dès que possible."
-        ),
-        color=discord.Color.blurple(),
-    )
-    if ping_roles:
-        mention_text = " ".join(role.mention for role in ping_roles)
-    elif staff_role:
-        mention_text = staff_role.mention
-    else:
-        mention_text = ""
-    await ticket_channel.send(content=f"{interaction.user.mention} {mention_text}".strip(), embed=ticket_embed, view=TicketCloseView())
- 
-    await interaction.followup.send(f"✅ Ton ticket a été créé : {ticket_channel.mention}", ephemeral=True)
- 
- 
 class TicketCloseView(discord.ui.View):
     """Vue statique (custom_id fixe) affichée dans chaque salon de ticket pour le fermer."""
  
@@ -2310,34 +2135,6 @@ class TicketCloseView(discord.ui.View):
             pass
  
  
-# ---- Valeurs par défaut du panneau de tickets (pré-remplies dans /ticketsetup) ----
-TICKET_DEFAULT_TITRE = "🤝〃Centre d'assistances"
-
-TICKET_DEFAULT_TEXTE_HAUT = (
-    "Notre équipe est disponible 24h/24 pour répondre à vos besoins !\n"
-    "\n"
-    "🔨〃SANCTIONS\n"
-    "Vous avez été sanctionnée et vous pensez que c'est une erreur ? Ouvrez un ticket pour "
-    "contester la décision et expliquer votre situation.\n"
-    "\n"
-    "📁〃RECRUTEMENTS\n"
-    "Vous voulez rejoindrais le staff afin de bien modéré le serveur, Alors ouvre un ticket !\n"
-    "\n"
-    "👑〃OWNERS\n"
-    "Pour les partenariats ou si vous rencontrez un problème important nécessitant "
-    "l'attention d'un owner.\n"
-    "\n"
-    "📊〃Vote2Profil\n"
-    "Pour les demandes liées à Vote2Profil."
-)
-
-TICKET_DEFAULT_BOUTONS = (
-    "VOTE2PROFIL | 📊 | red\n"
-    "OWNERS | 👑 | red\n"
-    "RECRUTEMENTS | 📁 | red\n"
-    "SANCTIONS | 🔨 | red"
-)
-
 # Un emoji de bouton est soit un vrai emoji Unicode (🔨), soit un emoji
 # personnalisé du serveur au format <:nom:id> ou <a:nom:id> (animé).
 # Les raccourcis texte du type :hammer: ne sont PAS acceptés par Discord.
@@ -2351,155 +2148,6 @@ def emoji_bouton_valide(emoji: str) -> bool:
     return not SHORTCODE_RE.match(emoji) and not emoji.isascii()
 
 
-class TicketSetupModal(discord.ui.Modal, title="Configuration du panneau de tickets"):
-    titre = discord.ui.TextInput(
-        label="Titre de l'embed",
-        placeholder="Ex : 📩 Centre d'assistance",
-        default=TICKET_DEFAULT_TITRE,
-        max_length=256,
-    )
-    texte_haut = discord.ui.TextInput(
-        label="Texte au-dessus des boutons",
-        style=discord.TextStyle.paragraph,
-        placeholder="Explique le fonctionnement du système de tickets...",
-        default=TICKET_DEFAULT_TEXTE_HAUT,
-        max_length=1000,
-    )
-    texte_bas = discord.ui.TextInput(
-        label="Texte en dessous (optionnel)",
-        style=discord.TextStyle.paragraph,
-        placeholder="Infos complémentaires, règles, horaires de réponse...",
-        required=False,
-        max_length=1000,
-    )
-    boutons = discord.ui.TextInput(
-        label="Boutons : Label | emoji | couleur",
-        style=discord.TextStyle.paragraph,
-        placeholder="Porter Plainte | 📩 | blurple\nAutre Contact | <:nom:123456789012345678> | green",
-        default=TICKET_DEFAULT_BOUTONS,
-        max_length=1000,
-    )
-    categorie_nom = discord.ui.TextInput(
-        label="Nom de la catégorie tickets (optionnel)",
-        placeholder=f"Par défaut : {TICKETS_CATEGORY_NAME}",
-        default=TICKETS_CATEGORY_NAME,
-        required=False,
-        max_length=100,
-    )
- 
-    async def on_submit(self, interaction: discord.Interaction):
-        buttons_data = []
-        for line in self.boutons.value.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = [p.strip() for p in line.split("|")]
-            label = parts[0] if parts else ""
-            if not label:
-                continue
-            emoji = parts[1] if len(parts) >= 2 and parts[1] else None
-            if emoji and not emoji_bouton_valide(emoji):
-                await interaction.response.send_message(
-                    f"❌ Emoji invalide pour le bouton **{label}** : `{emoji}`\n"
-                    "Utilise un vrai emoji (🔨) ou un emoji personnalisé du serveur au format "
-                    "`<:nom:id>` (tape `\\:nom:` dans Discord pour l'obtenir). "
-                    "Les raccourcis comme `:hammer:` ne marchent pas sur les boutons.",
-                    ephemeral=True,
-                )
-                return
-            style_key = parts[2].lower() if len(parts) >= 3 and parts[2] else "primary"
-            style_enum = TICKET_STYLE_MAP.get(style_key, discord.ButtonStyle.primary)
-            buttons_data.append({"label": label[:80], "emoji": emoji, "style": style_enum.name})
- 
-        if not buttons_data:
-            await interaction.response.send_message(
-                "❌ Aucun bouton valide détecté. Format attendu : `Label | emoji | couleur` (un par ligne).",
-                ephemeral=True,
-            )
-            return
- 
-        if len(buttons_data) > 20:
-            buttons_data = buttons_data[:20]
- 
-        category_name = self.categorie_nom.value.strip() or TICKETS_CATEGORY_NAME
-        embed_data = {
-            "titre": self.titre.value,
-            "texte_haut": self.texte_haut.value,
-            "texte_bas": self.texte_bas.value,
-        }
- 
-        # Discord n'autorise pas les menus déroulants dans une fenêtre (modal) —
-        # uniquement des champs texte. Dernière étape, juste après : un menu
-        # déroulant natif listant tous les rôles du serveur (scrollable) pour
-        # choisir qui sera ping à l'ouverture d'un ticket.
-        await interaction.response.send_message(
-            "🔧 Dernière étape : choisis le(s) rôle(s) à ping quand un ticket est ouvert, "
-            "ou clique sur **Passer** pour ne ping personne.",
-            view=TicketRoleSelectView(buttons_data, category_name, embed_data),
-            ephemeral=True,
-        )
- 
- 
-class TicketRoleSelectView(discord.ui.View):
-    """Étape finale de /ticketsetup : menu déroulant natif listant tous les rôles
-    du serveur (scrollable), pour choisir qui est ping à l'ouverture d'un ticket."""
-
-    def __init__(self, buttons_data: list, category_name: str, embed_data: dict):
-        super().__init__(timeout=300)
-        self.buttons_data = buttons_data
-        self.category_name = category_name
-        self.embed_data = embed_data
-        self._done = False
-
-    @discord.ui.select(
-        cls=discord.ui.RoleSelect,
-        placeholder="Rôle(s) à ping à l'ouverture d'un ticket (optionnel)",
-        min_values=0,
-        max_values=5,
-    )
-    async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
-        role_ids = [role.id for role in select.values]
-        await self._finalize(interaction, role_ids)
-
-    @discord.ui.button(label="Passer (aucun ping)", style=discord.ButtonStyle.secondary)
-    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._finalize(interaction, [])
-
-    async def _finalize(self, interaction: discord.Interaction, role_ids: list):
-        if self._done:
-            return
-        self._done = True
-
-        panel_id = uuid.uuid4().hex
-        save_ticket_panel(interaction.guild.id, panel_id, self.buttons_data, self.category_name, role_ids)
-
-        embed = discord.Embed(
-            title=self.embed_data["titre"],
-            description=self.embed_data["texte_haut"],
-            color=discord.Color.from_rgb(20, 20, 24),
-        )
-        if self.embed_data["texte_bas"]:
-            embed.add_field(name="\u200b", value=self.embed_data["texte_bas"], inline=False)
-
-        panel_view = build_ticket_panel_view(panel_id, self.buttons_data)
-
-        self.stop()
-        await interaction.response.edit_message(
-            content="✅ Panneau de tickets configuré et envoyé ci-dessous !", view=None
-        )
-        await interaction.channel.send(embed=embed, view=panel_view)
- 
- 
-@bot.tree.command(name="ticketsetup", description="[Staff] Crée un panneau de tickets personnalisable")
-async def ticketsetup(interaction: discord.Interaction):
-    if not is_staff(interaction.user):
-        await interaction.response.send_message(
-            "❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
-        )
-        return
-    await interaction.response.send_modal(TicketSetupModal())
- 
- 
 # ================================================================
 #          SYSTÈME D'ANNIVERSAIRES (optionnel, /anniv config)
 # ================================================================
@@ -3331,9 +2979,9 @@ UPDATE_LOGS = [
     {
         "titre": "🎫 Système de tickets",
         "description": (
-            "Ajout de `/ticketsetup` : crée un panneau de tickets entièrement personnalisable "
-            "(titre, texte, boutons de couleurs, rôle(s) à ping) directement depuis une fenêtre Discord.\n"
-            "Chaque bouton ouvre un salon privé pour l'utilisateur, avec un bouton pour fermer le ticket."
+            "Ajout de `/ticketsetup` : crée un panneau de tickets avec un **menu déroulant** de catégories "
+            "(titre, texte, catégories et rôle(s) à ping personnalisables depuis une fenêtre Discord).\n"
+            "Chaque choix ouvre un salon privé pour l'utilisateur, avec un bouton pour fermer le ticket."
         ),
     },
     {
@@ -4920,11 +4568,11 @@ async def giveaway_liste_cmd(interaction: discord.Interaction):
 bot.tree.add_command(giveaway_group)
 
 # ================================================================
-#        NOUVEAU SYSTÈME DE TICKETS (menu déroulant) — /ticketmenu
+#        NOUVEAU SYSTÈME DE TICKETS (menu déroulant) — /ticketsetup
 # ================================================================
 #
 # Panneau avec un menu déroulant "Choisir une catégorie..." (comme sur la
-# capture). Le staff lance /ticketmenu, remplit une fenêtre (titre, texte,
+# capture). Le staff lance /ticketsetup, remplit une fenêtre (titre, texte,
 # catégories, nom de la catégorie Discord), puis choisit éventuellement les
 # rôles à ping. Chaque choix du menu ouvre un salon de ticket privé avec le
 # bouton "Fermer le ticket" déjà existant (TicketCloseView).
@@ -4942,13 +4590,15 @@ TICKETMENU_DEFAULT_OPTIONS = (
 )
 
 
-def save_ticket_menu(guild_id: int, panel_id: str, options_data: list, category_name: str, ping_role_ids: list) -> None:
+def save_ticket_menu(guild_id: int, panel_id: str, options_data: list, category_name: str, ping_role_ids: list, titre: str, texte: str) -> None:
     guild_conf = config.setdefault(str(guild_id), {})
     menus = guild_conf.setdefault("ticket_menus", {})
     menus[panel_id] = {
         "options": options_data,
         "category_name": category_name,
         "ping_role_ids": ping_role_ids or [],
+        "titre": titre,
+        "texte": texte,
     }
     save_config(config)
 
@@ -4980,12 +4630,38 @@ class TicketMenuSelect(discord.ui.Select):
         await open_ticket_from_menu(interaction, self.panel_id, idx)
         # Réinitialise l'affichage du menu (sinon le choix reste "sélectionné").
         try:
-            await interaction.message.edit(view=build_ticket_menu_view(self.panel_id, self.options_data))
+            conf = config.get(str(interaction.guild.id), {}).get("ticket_menus", {}).get(self.panel_id, {})
+            await interaction.message.edit(
+                view=build_ticket_menu_view(self.panel_id, self.options_data, conf.get("titre"), conf.get("texte"))
+            )
         except discord.HTTPException:
             pass
 
 
-def build_ticket_menu_view(panel_id: str, options_data: list) -> discord.ui.View:
+# Rendu "capture" : un cadre unique avec titre, séparateurs, texte puis le menu.
+# Nécessite discord.py >= 2.6 (Components V2). Sinon : repli sur un embed classique.
+HAS_LAYOUT = hasattr(discord.ui, "LayoutView") and hasattr(discord.ui, "Container")
+
+if HAS_LAYOUT:
+    class TicketMenuLayout(discord.ui.LayoutView):
+        def __init__(self, panel_id: str, options_data: list, titre: str, texte: str):
+            super().__init__(timeout=None)
+            container = discord.ui.Container()
+            container.add_item(discord.ui.TextDisplay(f"## {titre}"))
+            container.add_item(discord.ui.Separator())
+            container.add_item(discord.ui.TextDisplay(texte))
+            container.add_item(discord.ui.Separator())
+            row = discord.ui.ActionRow()
+            row.add_item(TicketMenuSelect(panel_id, options_data))
+            container.add_item(row)
+            self.add_item(container)
+
+
+def build_ticket_menu_view(panel_id: str, options_data: list, titre: str = None, texte: str = None):
+    titre = titre or TICKETMENU_DEFAULT_TITRE
+    texte = texte or TICKETMENU_DEFAULT_TEXTE
+    if HAS_LAYOUT:
+        return TicketMenuLayout(panel_id, options_data, titre, texte)
     view = discord.ui.View(timeout=None)
     view.add_item(TicketMenuSelect(panel_id, options_data))
     return view
@@ -5177,21 +4853,22 @@ class TicketMenuRoleSelectView(discord.ui.View):
         self._done = True
 
         panel_id = uuid.uuid4().hex
-        save_ticket_menu(interaction.guild.id, panel_id, self.options_data, self.category_name, role_ids)
+        titre, texte = self.embed_data["titre"], self.embed_data["texte"]
+        save_ticket_menu(interaction.guild.id, panel_id, self.options_data, self.category_name, role_ids, titre, texte)
 
-        embed = discord.Embed(
-            title=self.embed_data["titre"],
-            description=self.embed_data["texte"],
-            color=discord.Color.from_rgb(32, 34, 37),
-        )
+        view = build_ticket_menu_view(panel_id, self.options_data, titre, texte)
 
         self.stop()
         await interaction.response.edit_message(content="✅ Panneau de tickets envoyé ci-dessous !", view=None)
-        await interaction.channel.send(embed=embed, view=build_ticket_menu_view(panel_id, self.options_data))
+        if HAS_LAYOUT:
+            await interaction.channel.send(view=view)
+        else:
+            embed = discord.Embed(title=titre, description=texte, color=discord.Color.from_rgb(32, 34, 37))
+            await interaction.channel.send(embed=embed, view=view)
 
 
-@bot.tree.command(name="ticketmenu", description="[Staff] Crée un panneau de tickets avec menu déroulant")
-async def ticketmenu_cmd(interaction: discord.Interaction):
+@bot.tree.command(name="ticketsetup", description="[Staff] Crée le panneau de tickets (menu déroulant)")
+async def ticketsetup_cmd(interaction: discord.Interaction):
     if not is_staff(interaction.user):
         await interaction.response.send_message("❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
         return
@@ -5278,21 +4955,16 @@ async def on_ready():
     bot.add_view(AbsenceView())
     bot.add_view(TicketCloseView())
 
-    # Reconstruit les panneaux de tickets existants pour que les boutons
+    # Reconstruit les panneaux de tickets (menu déroulant) pour qu'ils
     # restent fonctionnels après un redémarrage du bot.
-    for guild_id_str, guild_conf in config.items():
-        for panel_id, panel_data in guild_conf.get("ticket_panels", {}).items():
-            try:
-                bot.add_view(build_ticket_panel_view(panel_id, panel_data["buttons"]))
-            except Exception as e:
-                print(f"Erreur lors de la reconstruction du panneau de tickets {panel_id} : {e}")
-
     for guild_id_str, guild_conf in config.items():
         if not isinstance(guild_conf, dict):
             continue
         for panel_id, panel_data in guild_conf.get("ticket_menus", {}).items():
             try:
-                bot.add_view(build_ticket_menu_view(panel_id, panel_data["options"]))
+                bot.add_view(build_ticket_menu_view(
+                    panel_id, panel_data["options"], panel_data.get("titre"), panel_data.get("texte")
+                ))
             except Exception as e:
                 print(f"Erreur reconstruction menu de tickets {panel_id} : {e}")
 
