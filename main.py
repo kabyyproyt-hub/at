@@ -125,6 +125,9 @@ STAFF_COMMANDS = [
     ("+absences", "Ouvre un formulaire pour déclarer une absence."),
     ("+role-react setup", "Crée un message à réactions qui donne des rôles."),
     ("/ticketsetup", "Crée un panneau de tickets personnalisable (staff)."),
+    ("/ticketmenu", "Crée un panneau de tickets avec menu déroulant (staff)."),
+    ("+hide [#salon]", "Cache le salon à tout le monde sauf au staff."),
+    ("+unhide [#salon]", "Rend le salon de nouveau visible."),
     ("/soutiens", "Configure et affiche le panneau des soutiens du serveur (staff)."),
     ("+concept note @membre", "Notez une personne dans la listes des concepts."),
     ("+concept list reset", "Réinitialise la liste Concept."),
@@ -4917,6 +4920,356 @@ async def giveaway_liste_cmd(interaction: discord.Interaction):
 bot.tree.add_command(giveaway_group)
 
 # ================================================================
+#        NOUVEAU SYSTÈME DE TICKETS (menu déroulant) — /ticketmenu
+# ================================================================
+#
+# Panneau avec un menu déroulant "Choisir une catégorie..." (comme sur la
+# capture). Le staff lance /ticketmenu, remplit une fenêtre (titre, texte,
+# catégories, nom de la catégorie Discord), puis choisit éventuellement les
+# rôles à ping. Chaque choix du menu ouvre un salon de ticket privé avec le
+# bouton "Fermer le ticket" déjà existant (TicketCloseView).
+#
+# Format d'une catégorie (une par ligne) :
+#   Label | emoji (optionnel) | description courte (optionnel)
+
+TICKETMENU_DEFAULT_TITRE = "Tickets Rinka"
+TICKETMENU_DEFAULT_TEXTE = "↳ Le support du serveur est disponible toute la journée pour vous 🐰"
+TICKETMENU_DEFAULT_OPTIONS = (
+    "Support | 🛠️ | Besoin d'aide ou d'une information\n"
+    "Recrutement | 📁 | Rejoindre le staff\n"
+    "Partenariat | 🤝 | Proposer un partenariat\n"
+    "Sanction | 🔨 | Contester une sanction"
+)
+
+
+def save_ticket_menu(guild_id: int, panel_id: str, options_data: list, category_name: str, ping_role_ids: list) -> None:
+    guild_conf = config.setdefault(str(guild_id), {})
+    menus = guild_conf.setdefault("ticket_menus", {})
+    menus[panel_id] = {
+        "options": options_data,
+        "category_name": category_name,
+        "ping_role_ids": ping_role_ids or [],
+    }
+    save_config(config)
+
+
+class TicketMenuSelect(discord.ui.Select):
+    def __init__(self, panel_id: str, options_data: list):
+        options = []
+        for i, o in enumerate(options_data):
+            options.append(
+                discord.SelectOption(
+                    label=o["label"][:100],
+                    value=str(i),
+                    description=(o.get("description") or None),
+                    emoji=(o.get("emoji") or None),
+                )
+            )
+        super().__init__(
+            placeholder="Choisir une catégorie...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id=f"ticketmenu:{panel_id}",
+        )
+        self.panel_id = panel_id
+        self.options_data = options_data
+
+    async def callback(self, interaction: discord.Interaction):
+        idx = int(self.values[0])
+        await open_ticket_from_menu(interaction, self.panel_id, idx)
+        # Réinitialise l'affichage du menu (sinon le choix reste "sélectionné").
+        try:
+            await interaction.message.edit(view=build_ticket_menu_view(self.panel_id, self.options_data))
+        except discord.HTTPException:
+            pass
+
+
+def build_ticket_menu_view(panel_id: str, options_data: list) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(TicketMenuSelect(panel_id, options_data))
+    return view
+
+
+async def open_ticket_from_menu(interaction: discord.Interaction, panel_id: str, idx: int) -> None:
+    guild = interaction.guild
+    if guild is None:
+        return
+
+    guild_conf = config.setdefault(str(guild.id), {})
+    panel_conf = guild_conf.get("ticket_menus", {}).get(panel_id)
+    if not panel_conf or idx >= len(panel_conf["options"]):
+        await interaction.response.send_message("❌ Ce panneau de tickets n'est plus valide.", ephemeral=True)
+        return
+
+    label = panel_conf["options"][idx]["label"]
+
+    tickets_open = guild_conf.setdefault("tickets_open", {})
+    open_key = f"{interaction.user.id}:{panel_id}:{idx}"
+    existing_id = tickets_open.get(open_key)
+    if existing_id:
+        existing = guild.get_channel(existing_id)
+        if existing:
+            await interaction.response.send_message(
+                f"⚠️ Tu as déjà un ticket ouvert pour **{label}** : {existing.mention}", ephemeral=True
+            )
+            return
+        del tickets_open[open_key]
+
+    await interaction.response.defer(ephemeral=True)
+
+    category_name = panel_conf.get("category_name") or TICKETS_CATEGORY_NAME
+    category = discord.utils.get(guild.categories, name=category_name)
+    if category is None:
+        try:
+            category = await guild.create_category(category_name)
+        except discord.Forbidden:
+            await interaction.followup.send("❌ Je n'ai pas la permission de créer la catégorie de tickets.", ephemeral=True)
+            return
+
+    staff_role = discord.utils.get(guild.roles, name=STAFF_ROLE_NAME)
+    ping_roles = [r for r in (guild.get_role(rid) for rid in panel_conf.get("ping_role_ids") or []) if r]
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True, read_message_history=True),
+    }
+    if staff_role:
+        overwrites[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+    for role in ping_roles:
+        overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+
+    slug = "".join(c if c.isalnum() else "-" for c in label.lower()).strip("-")[:40] or "ticket"
+    channel_name = f"ticket-{slug}-{interaction.user.name}".lower()[:90]
+
+    try:
+        ticket_channel = await guild.create_text_channel(
+            channel_name,
+            category=category,
+            overwrites=overwrites,
+            topic=f"ticket_owner:{interaction.user.id}",
+            reason=f"Ticket ouvert par {interaction.user} ({label})",
+        )
+    except discord.Forbidden:
+        await interaction.followup.send("❌ Je n'ai pas la permission de créer un salon de ticket.", ephemeral=True)
+        return
+    except discord.HTTPException:
+        await interaction.followup.send("❌ Erreur lors de la création du salon de ticket.", ephemeral=True)
+        return
+
+    tickets_open[open_key] = ticket_channel.id
+    save_config(config)
+
+    embed = discord.Embed(
+        title=f"🎫 {label}",
+        description=(
+            f"Bonjour {interaction.user.mention}, merci d'avoir ouvert un ticket.\n\n"
+            "Explique ta demande en détail ci-dessous, un membre du staff te répondra dès que possible."
+        ),
+        color=discord.Color.blurple(),
+    )
+    if ping_roles:
+        mention_text = " ".join(r.mention for r in ping_roles)
+    elif staff_role:
+        mention_text = staff_role.mention
+    else:
+        mention_text = ""
+    await ticket_channel.send(
+        content=f"{interaction.user.mention} {mention_text}".strip(),
+        embed=embed,
+        view=TicketCloseView(),
+    )
+    await interaction.followup.send(f"✅ Ton ticket a été créé : {ticket_channel.mention}", ephemeral=True)
+
+
+class TicketMenuSetupModal(discord.ui.Modal, title="Panneau de tickets (menu)"):
+    titre = discord.ui.TextInput(
+        label="Titre de l'embed",
+        default=TICKETMENU_DEFAULT_TITRE,
+        max_length=256,
+    )
+    texte = discord.ui.TextInput(
+        label="Texte du panneau",
+        style=discord.TextStyle.paragraph,
+        default=TICKETMENU_DEFAULT_TEXTE,
+        max_length=1000,
+    )
+    options = discord.ui.TextInput(
+        label="Catégories : Label | emoji | description",
+        style=discord.TextStyle.paragraph,
+        default=TICKETMENU_DEFAULT_OPTIONS,
+        placeholder="Support | 🛠️ | Besoin d'aide",
+        max_length=2000,
+    )
+    categorie_nom = discord.ui.TextInput(
+        label="Nom de la catégorie Discord des tickets",
+        default=TICKETS_CATEGORY_NAME,
+        required=False,
+        max_length=100,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        options_data = []
+        for line in self.options.value.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            label = parts[0] if parts else ""
+            if not label:
+                continue
+            emoji = parts[1] if len(parts) >= 2 and parts[1] else None
+            if emoji and not emoji_bouton_valide(emoji):
+                await interaction.response.send_message(
+                    f"❌ Emoji invalide pour **{label}** : `{emoji}`\n"
+                    "Utilise un vrai emoji (🔨) ou un emoji personnalisé `<:nom:id>`. "
+                    "Les raccourcis comme `:hammer:` ne marchent pas.",
+                    ephemeral=True,
+                )
+                return
+            description = parts[2][:100] if len(parts) >= 3 and parts[2] else None
+            options_data.append({"label": label[:100], "emoji": emoji, "description": description})
+
+        if not options_data:
+            await interaction.response.send_message(
+                "❌ Aucune catégorie valide. Format : `Label | emoji | description` (une par ligne).",
+                ephemeral=True,
+            )
+            return
+
+        options_data = options_data[:25]  # limite Discord pour un menu déroulant
+        category_name = self.categorie_nom.value.strip() or TICKETS_CATEGORY_NAME
+        embed_data = {"titre": self.titre.value, "texte": self.texte.value}
+
+        await interaction.response.send_message(
+            "🔧 Dernière étape : choisis le(s) rôle(s) à ping à l'ouverture d'un ticket, "
+            "ou clique sur **Passer**.",
+            view=TicketMenuRoleSelectView(options_data, category_name, embed_data),
+            ephemeral=True,
+        )
+
+
+class TicketMenuRoleSelectView(discord.ui.View):
+    def __init__(self, options_data: list, category_name: str, embed_data: dict):
+        super().__init__(timeout=300)
+        self.options_data = options_data
+        self.category_name = category_name
+        self.embed_data = embed_data
+        self._done = False
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Rôle(s) à ping (optionnel)",
+        min_values=0,
+        max_values=5,
+    )
+    async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
+        await self._finalize(interaction, [r.id for r in select.values])
+
+    @discord.ui.button(label="Passer (aucun ping)", style=discord.ButtonStyle.secondary)
+    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._finalize(interaction, [])
+
+    async def _finalize(self, interaction: discord.Interaction, role_ids: list):
+        if self._done:
+            return
+        self._done = True
+
+        panel_id = uuid.uuid4().hex
+        save_ticket_menu(interaction.guild.id, panel_id, self.options_data, self.category_name, role_ids)
+
+        embed = discord.Embed(
+            title=self.embed_data["titre"],
+            description=self.embed_data["texte"],
+            color=discord.Color.from_rgb(32, 34, 37),
+        )
+
+        self.stop()
+        await interaction.response.edit_message(content="✅ Panneau de tickets envoyé ci-dessous !", view=None)
+        await interaction.channel.send(embed=embed, view=build_ticket_menu_view(panel_id, self.options_data))
+
+
+@bot.tree.command(name="ticketmenu", description="[Staff] Crée un panneau de tickets avec menu déroulant")
+async def ticketmenu_cmd(interaction: discord.Interaction):
+    if not is_staff(interaction.user):
+        await interaction.response.send_message("❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
+        return
+    await interaction.response.send_modal(TicketMenuSetupModal())
+
+
+# ================================================================
+#                    +hide / +unhide (staff)
+# ================================================================
+#
+# +hide [#salon]   : cache le salon à @everyone, seul le STAFF (et les
+#                    Gérants) continue de le voir. Sans argument : salon actuel.
+# +unhide [#salon] : restaure la visibilité d'avant le +hide.
+
+async def _gerer_visibilite(ctx: commands.Context, salon, cacher: bool) -> None:
+    if not is_staff(ctx.author):
+        await ctx.send("❌ Cette commande est réservée au staff.")
+        return
+
+    salon = salon or ctx.channel
+    guild = ctx.guild
+    guild_conf = config.setdefault(str(guild.id), {})
+    hidden = guild_conf.setdefault("hidden_channels", {})
+    key = str(salon.id)
+
+    try:
+        if cacher:
+            if key in hidden:
+                await ctx.send(f"⚠️ {salon.mention} est déjà caché.")
+                return
+
+            ow_everyone = salon.overwrites_for(guild.default_role)
+            hidden[key] = ow_everyone.view_channel  # True / False / None
+            ow_everyone.view_channel = False
+            await salon.set_permissions(guild.default_role, overwrite=ow_everyone, reason=f"+hide par {ctx.author}")
+
+            # Le bot et les rôles staff gardent l'accès.
+            ow_bot = salon.overwrites_for(guild.me)
+            ow_bot.view_channel = True
+            await salon.set_permissions(guild.me, overwrite=ow_bot, reason="+hide (accès bot)")
+
+            for nom in (STAFF_ROLE_NAME, GERANT_ROLE_NAME):
+                role = discord.utils.get(guild.roles, name=nom)
+                if role:
+                    ow = salon.overwrites_for(role)
+                    ow.view_channel = True
+                    await salon.set_permissions(role, overwrite=ow, reason="+hide (accès staff)")
+
+            save_config(config)
+            await ctx.send(f"🙈 {salon.mention} est maintenant caché (visible uniquement par le staff).")
+        else:
+            if key not in hidden:
+                await ctx.send(f"⚠️ {salon.mention} n'a pas été caché avec `+hide`.")
+                return
+
+            ow_everyone = salon.overwrites_for(guild.default_role)
+            ow_everyone.view_channel = hidden.pop(key)
+            await salon.set_permissions(guild.default_role, overwrite=ow_everyone, reason=f"+unhide par {ctx.author}")
+            save_config(config)
+            await ctx.send(f"👀 {salon.mention} est de nouveau visible.")
+    except discord.Forbidden:
+        await ctx.send("❌ Je n'ai pas la permission de modifier ce salon (**Gérer les salons** / **Gérer les permissions**).")
+    except discord.HTTPException:
+        await ctx.send("❌ Erreur lors de la modification du salon.")
+
+
+@bot.command(name="hide")
+async def hide_command(ctx: commands.Context, salon: discord.abc.GuildChannel = None):
+    await _gerer_visibilite(ctx, salon, cacher=True)
+
+
+@bot.command(name="unhide")
+async def unhide_command(ctx: commands.Context, salon: discord.abc.GuildChannel = None):
+    await _gerer_visibilite(ctx, salon, cacher=False)
+
+
+
+# ================================================================
 #                          EVENTS
 # ================================================================
  
@@ -4933,6 +5286,15 @@ async def on_ready():
                 bot.add_view(build_ticket_panel_view(panel_id, panel_data["buttons"]))
             except Exception as e:
                 print(f"Erreur lors de la reconstruction du panneau de tickets {panel_id} : {e}")
+
+    for guild_id_str, guild_conf in config.items():
+        if not isinstance(guild_conf, dict):
+            continue
+        for panel_id, panel_data in guild_conf.get("ticket_menus", {}).items():
+            try:
+                bot.add_view(build_ticket_menu_view(panel_id, panel_data["options"]))
+            except Exception as e:
+                print(f"Erreur reconstruction menu de tickets {panel_id} : {e}")
 
     try:
         guild_obj = discord.Object(id=DEV_GUILD_ID)
