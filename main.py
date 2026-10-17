@@ -2723,14 +2723,13 @@ class SoutiensRoleSelectView(discord.ui.View):
             description=self.embed_data["description"],
             color=discord.Color.blurple(),
         )
-        embed.add_field(
-            name="✅ Comment obtenir le rôle",
-            value=(
-                "Mets l'un des textes suivants dans ton **statut personnalisé Discord** :\n"
+        comment = "• Active le **tag de ce serveur** sur ton profil (Paramètres → Profils → Tag de serveur)."
+        if self.triggers_list:
+            comment += (
+                "\n• Ou mets l'un des textes suivants dans ton **statut personnalisé Discord** :\n"
                 + "\n".join(f"`{t}`" for t in self.triggers_list)
-            ),
-            inline=False,
-        )
+            )
+        embed.add_field(name="✅ Comment obtenir le rôle", value=comment, inline=False)
         embed.set_footer(text=f"Rôle attribué automatiquement : {role.name}")
 
         self.stop()
@@ -2751,25 +2750,20 @@ class SoutiensSetupModal(discord.ui.Modal, title="Configuration du système de s
         max_length=1000,
     )
     triggers = discord.ui.TextInput(
-        label="Textes à détecter (1 par ligne)",
+        label="Textes à détecter dans le statut (optionnel)",
         style=discord.TextStyle.paragraph,
-        placeholder="/akuma\n.gg/akuma",
+        placeholder="/akuma\n.gg/akuma  (laisse vide pour n'utiliser que le tag)",
+        required=False,
         max_length=200,
     )
 
     async def on_submit(self, interaction: discord.Interaction):
         triggers_list = [t.strip() for t in self.triggers.value.splitlines() if t.strip()]
-        if not triggers_list:
-            await interaction.response.send_message(
-                "❌ Indique au moins un texte à détecter dans le statut.", ephemeral=True
-            )
-            return
-
         embed_data = {"titre": self.titre.value, "description": self.description.value}
         await interaction.response.send_message(
-            "🔧 Dernière étape : choisis le rôle à attribuer automatiquement aux membres qui mettent "
-            + ", ".join(f"`{t}`" for t in triggers_list)
-            + " dans leur statut.",
+            "🔧 Dernière étape : choisis le rôle à attribuer automatiquement aux membres qui affichent "
+            "le **tag du serveur**"
+            + (" ou qui mettent " + ", ".join(f"`{t}`" for t in triggers_list) + " dans leur statut." if triggers_list else "."),
             view=SoutiensRoleSelectView(embed_data, triggers_list),
             ephemeral=True,
         )
@@ -2785,14 +2779,27 @@ async def soutiens_cmd(interaction: discord.Interaction):
     await interaction.response.send_modal(SoutiensSetupModal())
 
 
-@bot.event
-async def on_presence_update(before: discord.Member, after: discord.Member):
-    guild = after.guild
-    if guild is None:
-        return
+def membre_affiche_tag_serveur(member: discord.Member) -> bool:
+    """True si le membre affiche le TAG DE CE SERVEUR sur son profil
+    (Paramètres → Profils → Tag de serveur). Nécessite discord.py >= 2.6 ;
+    avec une version plus ancienne, renvoie toujours False (sans planter)."""
+    pg = getattr(member, "primary_guild", None)
+    if pg is None:
+        return False
+    if getattr(pg, "id", None) != member.guild.id:
+        return False
+    if getattr(pg, "identity_enabled", None) is False:
+        return False
+    return bool(getattr(pg, "tag", None))
 
-    guild_conf = config.get(str(guild.id), {})
-    soutiens_conf = guild_conf.get("soutiens_config")
+
+async def synchroniser_role_soutien(member: discord.Member) -> None:
+    """Donne le rôle de soutien si le membre affiche le tag du serveur OU a un
+    des textes configurés dans son statut ; le retire sinon."""
+    if member.bot:
+        return
+    guild = member.guild
+    soutiens_conf = config.get(str(guild.id), {}).get("soutiens_config")
     if not soutiens_conf:
         return
 
@@ -2801,33 +2808,80 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
         return
 
     triggers = [t.lower() for t in soutiens_conf.get("triggers", [])]
-    if not triggers:
-        return
 
-    statut_texte = ""
-    for activity in after.activities:
-        if isinstance(activity, discord.CustomActivity) and activity.name:
-            statut_texte = activity.name.lower()
-            break
+    par_tag = membre_affiche_tag_serveur(member)
 
-    correspond = any(trigger in statut_texte for trigger in triggers)
-    a_deja_le_role = role in after.roles
+    par_statut = False
+    if triggers:
+        statut_texte = ""
+        for activity in member.activities:
+            if isinstance(activity, discord.CustomActivity) and activity.name:
+                statut_texte = activity.name.lower()
+                break
+        par_statut = any(trigger in statut_texte for trigger in triggers)
+
+    doit_avoir_le_role = par_tag or par_statut
+    a_deja_le_role = role in member.roles
+    # Hors ligne, le statut n'est pas lisible : on évite de retirer le rôle à tort.
+    en_ligne = member.status is not discord.Status.offline
 
     try:
-        if correspond and not a_deja_le_role:
-            await after.add_roles(role, reason="Statut de soutien détecté")
-            print(f"[soutiens] Rôle '{role.name}' attribué à {after} sur {guild.name}.")
-        elif not correspond and a_deja_le_role:
-            await after.remove_roles(role, reason="Statut de soutien retiré")
-            print(f"[soutiens] Rôle '{role.name}' retiré à {after} sur {guild.name}.")
+        if doit_avoir_le_role and not a_deja_le_role:
+            raison = "Tag du serveur détecté" if par_tag else "Statut de soutien détecté"
+            await member.add_roles(role, reason=raison)
+            print(f"[soutiens] Rôle '{role.name}' attribué à {member} sur {guild.name} ({raison}).")
+        elif not doit_avoir_le_role and a_deja_le_role and en_ligne:
+            await member.remove_roles(role, reason="Tag / statut de soutien retiré")
+            print(f"[soutiens] Rôle '{role.name}' retiré à {member} sur {guild.name}.")
     except discord.Forbidden:
         print(
-            f"[soutiens] ❌ Permission refusée pour attribuer/retirer '{role.name}' à {after} sur {guild.name}. "
+            f"[soutiens] ❌ Permission refusée pour attribuer/retirer '{role.name}' à {member} sur {guild.name}. "
             "Vérifie que le rôle du bot est placé AU-DESSUS du rôle de soutien dans Paramètres du serveur → Rôles, "
             "et que le bot a bien la permission 'Gérer les rôles'."
         )
     except discord.HTTPException as e:
-        print(f"[soutiens] ⚠️ Erreur HTTP lors de l'attribution du rôle à {after} : {e}")
+        print(f"[soutiens] ⚠️ Erreur HTTP lors de l'attribution du rôle à {member} : {e}")
+
+
+@bot.event
+async def on_presence_update(before: discord.Member, after: discord.Member):
+    if after.guild is None:
+        return
+    await synchroniser_role_soutien(after)
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    await synchroniser_role_soutien(after)
+
+
+@bot.event
+async def on_user_update(before: discord.User, after: discord.User):
+    # Le tag de serveur fait partie du profil utilisateur : on réévalue le membre
+    # dans chaque serveur où le bot le voit.
+    for guild in bot.guilds:
+        member = guild.get_member(after.id)
+        if member is not None:
+            await synchroniser_role_soutien(member)
+
+
+# Filet de sécurité : Discord ne prévient pas toujours le bot quand quelqu'un
+# active/désactive son tag, donc on revérifie régulièrement.
+@tasks.loop(minutes=5)
+async def check_soutiens_tag_loop():
+    for guild in bot.guilds:
+        if not config.get(str(guild.id), {}).get("soutiens_config"):
+            continue
+        for member in guild.members:
+            try:
+                await synchroniser_role_soutien(member)
+            except Exception as e:
+                print(f"[soutiens] ⚠️ Erreur de vérification pour {member} : {e}")
+
+
+@check_soutiens_tag_loop.before_loop
+async def before_check_soutiens_tag_loop():
+    await bot.wait_until_ready()
  
  
 # ================================================================
@@ -3410,6 +3464,12 @@ async def on_member_join(member: discord.Member):
     # Envoyé en premier, indépendamment du suivi des invitations : ainsi il
     # part même si le bot n'a pas la permission de lire les invitations.
     await envoyer_message_bienvenue(member)
+
+    # Rôle de soutien si le membre arrive avec le tag du serveur déjà activé
+    try:
+        await synchroniser_role_soutien(member)
+    except Exception as e:
+        print(f"[soutiens] ⚠️ Erreur à l'arrivée de {member} : {e}")
 
      # ---- Ping puis suppression immédiate (/mentionjoin) ----
     mentionjoin_channel_id = config.get(str(guild.id), {}).get("mentionjoin_channel_id")
@@ -5010,6 +5070,9 @@ async def on_ready():
 
     if not rotation_statut.is_running():
         rotation_statut.start()
+
+    if not check_soutiens_tag_loop.is_running():
+        check_soutiens_tag_loop.start()
 
     print(f"✅ Connecté en tant que {bot.user}")
  
